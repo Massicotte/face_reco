@@ -32,8 +32,21 @@ python face_reco.py
 - `data/people.json` : les infos des personnes.
 - `data/faces/` : les photos de visages utilisées pour l'entraînement.
 
-Améliorer la reconnaissance : ajoutez plusieurs photos par personne (appuyez
-plusieurs fois sur `N` pour la même personne, le modèle se ré-entraîne à chaque fois).
+Améliorer la reconnaissance : appuyez plusieurs fois sur `N` pour la même
+personne (sous des angles/éclairages différents) — chaque échantillon est
+enregistré et le modèle se ré-entraîne à chaque fois. Si le visage reconnu
+correspond à une personne existante, seul un nouvel échantillon est ajouté,
+sans redemander les infos.
+
+## Versions recommandées
+
+Si les versions récentes d'OpenCV posent problème (`cv2.face` introuvable,
+DLL manquante, etc.), utilisez ces versions éprouvées :
+
+```
+opencv-contrib-python==4.8.1.78
+numpy>=1.21,<2
+```
 
 ## Limites
 

@@ -1,3 +1,5 @@
+"""Reconnaissance faciale webcam : detection + infos (nom, prenom, age, sexe)."""
+
 import json
 import os
 from datetime import date
@@ -8,9 +10,12 @@ import numpy as np
 DATA_DIR = "data"
 DB_FILE = os.path.join(DATA_DIR, "people.json")
 TRAINING_DIR = os.path.join(DATA_DIR, "faces")
-CASCADE = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-
+FACE_SIZE = (200, 200)
+MIN_FACE_SIZE = (80, 80)
+CONFIDENCE_THRESHOLD = 50.0
 FONT = cv2.FONT_HERSHEY_SIMPLEX
+
+CASCADE = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 
 
 def load_db():
@@ -26,32 +31,53 @@ def save_db(db):
         json.dump(db, f, ensure_ascii=False, indent=2)
 
 
-def get_label(db, name):
-    labels = {p["label"]: p for p in db.values()}
-    next_label = max((l for l in labels), default=0) + 1
-    return next_label
-
-
-def register_new_person(frame, faces, db, recognizer):
-    if len(faces) != 1:
-        return "Montrez exactement UN visage à la caméra pour enregistrer."
-    nom = input("Nom : ").strip()
-    prenom = input("Prénom : ").strip()
-    age = input("Âge : ").strip()
-    sexe = input("Sexe (H/F) : ").strip()
-    extra = input("Info complémentaire (facultatif) : ").strip()
-
-    x, y, w, h = faces[0]
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+def extract_face(gray, box):
+    x, y, w, h = box
     face = gray[y : y + h, x : x + w]
-    face = cv2.resize(face, (200, 200))
+    return cv2.resize(face, FACE_SIZE)
 
+
+def save_face_sample(gray, box, label):
     os.makedirs(TRAINING_DIR, exist_ok=True)
-    label = get_label(db, nom)
-    cv2.imwrite(os.path.join(TRAINING_DIR, f"{label}.png"), face)
+    samples = [
+        f for f in os.listdir(TRAINING_DIR) if f.startswith(f"{label}_")
+    ]
+    index = len(samples)
+    path = os.path.join(TRAINING_DIR, f"{label}_{index}.png")
+    cv2.imwrite(path, extract_face(gray, box))
+    return path
 
-    db[nom] = {
-        "label": label,
+
+def retrain(db, recognizer):
+    images, labels = [], []
+    for person in db.values():
+        prefix = f"{person['label']}_"
+        for fname in os.listdir(TRAINING_DIR) if os.path.isdir(TRAINING_DIR) else []:
+            if fname.startswith(prefix):
+                img = cv2.imread(os.path.join(TRAINING_DIR, fname), cv2.IMREAD_GRAYSCALE)
+                if img is not None:
+                    images.append(cv2.resize(img, FACE_SIZE))
+                    labels.append(person["label"])
+    if images:
+        recognizer.train(images, np.array(labels))
+        return True
+    return False
+
+
+def next_label(db):
+    return max((p["label"] for p in db.values()), default=0) + 1
+
+
+def prompt_person_info(nom_existant=None):
+    if nom_existant:
+        print(f"Ajout d'un echantillon pour {nom_existant} existant.")
+        return nom_existant, None
+    nom = input("Nom : ").strip()
+    prenom = input("Prenom : ").strip()
+    age = input("Age : ").strip()
+    sexe = input("Sexe (H/F) : ").strip()
+    extra = input("Info complementaire (facultatif) : ").strip()
+    return nom, {
         "nom": nom,
         "prenom": prenom,
         "age": age,
@@ -59,33 +85,56 @@ def register_new_person(frame, faces, db, recognizer):
         "info": extra,
         "enregistre_le": date.today().isoformat(),
     }
+
+
+def register_person(gray, box, db, recognizer):
+    face = extract_face(gray, box)
+    label, conf = recognizer.predict(face) if not recognizer.empty() else (0, 100)
+    confidence = 100 - conf
+    known = None
+    if confidence > CONFIDENCE_THRESHOLD:
+        known = next((p for p in db.values() if p["label"] == label), None)
+
+    nom, infos = prompt_person_info(known["nom"] if known else None)
+    if not nom:
+        return "Enregistrement annule."
+
+    if known:
+        person = known
+    elif nom in db:
+        person = db[nom]
+    else:
+        person = {"label": next_label(db), **infos}
+        db[nom] = person
+    save_face_sample(gray, box, person["label"])
     save_db(db)
     retrain(db, recognizer)
-    return f"{prenom} {nom} enregistré !"
+    return f"{person.get('prenom', '')} {nom} : nouvel echantillon enregistre."
 
 
-def retrain(db, recognizer):
-    images, labels = [], []
-    for person in db.values():
-        path = os.path.join(TRAINING_DIR, f"{person['label']}.png")
-        if os.path.exists(path):
-            img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
-            images.append(img)
-            labels.append(person["label"])
-    if images:
-        recognizer.train(images, np.array(labels))
+def recognize(gray, box, db, recognizer):
+    if recognizer.empty() or not db:
+        return None, 0.0
+    label, conf = recognizer.predict(extract_face(gray, box))
+    confidence = 100 - conf
+    if confidence > CONFIDENCE_THRESHOLD:
+        person = next((p for p in db.values() if p["label"] == label), None)
+        return person, confidence
+    return None, confidence
 
 
-def draw_info(frame, x, y, w, h, person, confidence):
-    cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+def draw_info(frame, box, person, confidence):
+    x, y, w, h = box
+    color = (0, 255, 0) if person else (0, 0, 255)
+    cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
     if person:
-        text = f"{person['prenom']} {person['nom']} | {person['age']} ans | {person['sexe']}"
-        cv2.putText(frame, text, (x, y - 10), FONT, 0.6, (0, 255, 0), 2)
+        line1 = f"{person['prenom']} {person['nom']} | {person['age']} ans | {person['sexe']}"
+        cv2.putText(frame, line1, (x, y - 10), FONT, 0.6, color, 2)
         if person.get("info"):
             cv2.putText(frame, person["info"], (x, y + h + 20), FONT, 0.5, (255, 255, 0), 1)
         cv2.putText(frame, f"confiance: {confidence:.0f}", (x, y + h + 40), FONT, 0.5, (200, 200, 200), 1)
     else:
-        cv2.putText(frame, "Inconnu", (x, y - 10), FONT, 0.6, (0, 0, 255), 2)
+        cv2.putText(frame, "Inconnu", (x, y - 10), FONT, 0.6, color, 2)
 
 
 def main():
@@ -95,7 +144,7 @@ def main():
 
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
-        print("Erreur : impossible d'accéder à la webcam.")
+        print("Erreur : impossible d'acceder a la webcam.")
         return
 
     print("Webcam activee. Touches : N = nouvel enregistrement | Q = quitter")
@@ -106,18 +155,11 @@ def main():
             break
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces = CASCADE.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=5, minSize=(80, 80))
+        boxes = CASCADE.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=5, minSize=MIN_FACE_SIZE)
 
-        for x, y, w, h in faces:
-            person, confidence = None, 0.0
-            if len(db) > 0:
-                face = gray[y : y + h, x : x + w]
-                face = cv2.resize(face, (200, 200))
-                label, conf = recognizer.predict(face)
-                confidence = 100 - conf
-                if confidence > 50:
-                    person = next((p for p in db.values() if p["label"] == label), None)
-            draw_info(frame, x, y, w, h, person, confidence)
+        for box in boxes:
+            person, confidence = recognize(gray, box, db, recognizer)
+            draw_info(frame, box, person, confidence)
 
         if message:
             cv2.putText(frame, message, (10, 30), FONT, 0.7, (0, 200, 255), 2)
@@ -127,7 +169,10 @@ def main():
         if key == ord("q"):
             break
         elif key == ord("n"):
-            message = register_new_person(frame, list(faces), db, recognizer)
+            if len(boxes) == 1:
+                message = register_person(gray, boxes[0], db, recognizer)
+            else:
+                message = "Montrez exactement UN visage pour enregistrer."
 
     cap.release()
     cv2.destroyAllWindows()
