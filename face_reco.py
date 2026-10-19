@@ -28,7 +28,7 @@ FACE_SIZE = (200, 200)
 MIN_FACE_SIZE = (80, 80)
 CONFIDENCE_THRESHOLD = 50.0
 POLL_INTERVAL = 2.0
-PREDICT_INTERVAL = 0.5
+PREDICT_INTERVAL = 1.5
 SIZE_UPDATE_INTERVAL = 0.5
 SIZE_TOLERANCE = 0.12
 TRACK_TIMEOUT = 1.0
@@ -39,8 +39,7 @@ CELEB_MAX_DIST = 90.0
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".bmp", ".webp")
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 REF_BOX_HEIGHT = 280.0
-BANNER_HEIGHT = 54
-TITLE_TEXT = "GISCARDVISION"
+BLUR_MIN_VAR = 40.0
 
 CASCADE = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 
@@ -58,41 +57,6 @@ FIELD_LABELS = [
     ("genre", "Genre (libre : H, F, NB, transfem, ... ce que vous voulez)"),
     ("info", "Info complementaire (facultatif)"),
 ]
-
-
-def draw_pixel_title(img, text, cx, y, color=(0, 0, 0), outline=(255, 255, 255), px=4):
-    """Titre pixelise facon Minitel : rendu minuscule puis agreandi en NEAREST,
-    avec contour d'un pixel pour rester lisible sur le fond tricolore."""
-    (tw, th), base = cv2.getTextSize(text, FONT, 0.62, 1)
-    tmp = np.zeros((th + base + 8, tw + 8), dtype=np.uint8)
-    cv2.putText(tmp, text, (4, 4 + th), FONT, 0.62, 255, 1, cv2.LINE_4)
-    kernel = np.ones((3, 3), dtype=np.uint8)
-    outline_px = cv2.dilate(tmp, kernel, iterations=1)
-    big_text = cv2.resize(tmp, (tmp.shape[1] * px, tmp.shape[0] * px), interpolation=cv2.INTER_NEAREST)
-    big_outline = cv2.resize(outline_px, (outline_px.shape[1] * px, outline_px.shape[0] * px),
-                             interpolation=cv2.INTER_NEAREST)
-    bh, bw = big_text.shape
-    x0 = cx - bw // 2
-    x1, y1 = max(0, x0), max(0, y)
-    x2, y2 = min(img.shape[1], x0 + bw), min(img.shape[0], y + bh)
-    if x2 <= x1 or y2 <= y1:
-        return
-    m_out = big_outline[y1 - y : y2 - y, x1 - x0 : x2 - x0] > 127
-    m_txt = big_text[y1 - y : y2 - y, x1 - x0 : x2 - x0] > 127
-    roi = img[y1:y2, x1:x2]
-    roi[m_out] = outline
-    roi[m_txt] = color
-
-
-def draw_giscard_banner(canvas):
-    """Bandeau tricolore bleu/blanc/rouge + titre pixelise GISCARDVISION."""
-    h, w = canvas.shape[:2]
-    bh = min(BANNER_HEIGHT, h)
-    third = w // 3
-    canvas[:bh, :third] = (255, 30, 20)
-    canvas[:bh, third : 2 * third] = (240, 240, 240)
-    canvas[:bh, 2 * third :] = (40, 30, 215)
-    draw_pixel_title(canvas, TITLE_TEXT, w // 2, max(0, (bh - 30) // 2), px=4)
 
 
 def load_db():
@@ -479,6 +443,13 @@ class App:
         self.report_deadline = time.time() + 5.0
         self.gui.set_status("Signalement DGSI : montrez son visage a la camera (5 s)...")
 
+    def stop_report(self, label):
+        """Retire la cible et la mention sur ecoute pour cette personne."""
+        self.sur_ecoute.discard(label)
+        person = person_by_label(self.db, label)
+        name = f"{person['prenom']} {person['nom']}" if person else "cette personne"
+        self.gui.set_status(f"{name} : n'est plus sur ecoute.")
+
     # ---- boucle video ----
 
     def draw_track(self, frame, track):
@@ -528,10 +499,12 @@ class App:
             tracks = self.tracker.update(list(boxes), now)
             for track in tracks:
                 if now >= track.next_predict:
-                    label, confidence = predict_face(gray, track.int_box, self.recognizer)
-                    track.person = person_by_label(self.db, label) if label is not None else None
-                    track.confidence = confidence
-                    track.celeb = self.celeb.best_match(gray, track.int_box)
+                    # image floue (mouvement) : on garde la derniere identite connue
+                    if cv2.Laplacian(extract_face(gray, track.int_box), cv2.CV_64F).var() >= BLUR_MIN_VAR:
+                        label, confidence = predict_face(gray, track.int_box, self.recognizer)
+                        track.person = person_by_label(self.db, label) if label is not None else None
+                        track.confidence = confidence
+                        track.celeb = self.celeb.best_match(gray, track.int_box)
                     track.next_predict = now + PREDICT_INTERVAL
                 self.draw_track(frame, track)
                 if self.pending_terminate is not None and track.person is not None \
@@ -560,19 +533,15 @@ class App:
                 win_w, win_h = frame.shape[1], frame.shape[0]
             if win_w > 0 and (win_w != frame.shape[1] or win_h != frame.shape[0]):
                 fh, fw = frame.shape[:2]
-                scale = min(win_w / fw, (win_h - BANNER_HEIGHT) / fh)
+                scale = min(win_w / fw, win_h / fh)
                 new_w, new_h = max(1, int(fw * scale)), max(1, int(fh * scale))
                 resized = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
                 canvas = np.zeros((win_h, win_w, 3), dtype=np.uint8)
-                ox = (win_w - new_w) // 2
-                oy = BANNER_HEIGHT + ((win_h - BANNER_HEIGHT) - new_h) // 2
+                ox, oy = (win_w - new_w) // 2, (win_h - new_h) // 2
                 canvas[oy : oy + new_h, ox : ox + new_w] = resized
-                draw_giscard_banner(canvas)
                 cv2.imshow(self.window, canvas)
             else:
-                canvas = frame.copy()
-                draw_giscard_banner(canvas)
-                cv2.imshow(self.window, canvas)
+                cv2.imshow(self.window, frame)
 
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q"):
@@ -630,10 +599,20 @@ class Gui:
     def __init__(self, app):
         self.app = app
         self.root = TkinterDnD.Tk() if DND_OK else tk.Tk()
-        self.root.title("Face Reco - Controle")
+        self.root.title("GiscardVision - Controle")
         self.root.geometry("470x640")
         self.root.protocol("WM_DELETE_WINDOW", app.quit)
         self.people = []
+
+        # Bandeau tricolore + titre GISCARDVISION (look Minitel)
+        strip = tk.Frame(self.root, height=46)
+        strip.pack(fill=tk.X)
+        strip.pack_propagate(False)
+        tk.Frame(strip, bg="#002395").place(relx=0.0, rely=0.0, relwidth=1 / 3, relheight=1.0)
+        tk.Frame(strip, bg="#ffffff").place(relx=1 / 3, rely=0.0, relwidth=1 / 3, relheight=1.0)
+        tk.Frame(strip, bg="#ED2939").place(relx=2 / 3, rely=0.0, relwidth=1 / 3, relheight=1.0)
+        tk.Label(strip, text="GISCARDVISION", font=("Courier", 15, "bold"),
+                 bg="#ffffff", fg="#002395").place(relx=0.5, rely=0.5, anchor="center")
 
         self.status_var = tk.StringVar(value="Pret.")
         top = tk.Frame(self.root)
@@ -681,6 +660,12 @@ class Gui:
         )
         self.dgsi_btn.pack(fill=tk.X, pady=5)
 
+        self.stop_btn = tk.Button(
+            top, text="Cesser d'écouter", state=tk.DISABLED, bg="#ffffff", fg="#002395",
+            font=("Courier", 12, "bold"), command=self.on_stop_report,
+        )
+        self.stop_btn.pack(fill=tk.X, pady=5)
+
         tk.Label(self.root, textvariable=self.status_var, fg="#0b57d0", wraplength=450, justify=tk.LEFT).pack(
             fill=tk.X, padx=10, pady=5)
 
@@ -691,6 +676,7 @@ class Gui:
             self.listbox.insert(tk.END, f"{p['prenom']} {p['nom']}")
         self.terminate_btn.config(state=tk.DISABLED)
         self.dgsi_btn.config(state=tk.DISABLED)
+        self.stop_btn.config(state=tk.DISABLED)
         self.edit_btn.config(state=tk.DISABLED)
         self.add_btn.config(state=tk.DISABLED)
         self.details.config(text="Selectionnez une personne.")
@@ -706,6 +692,7 @@ class Gui:
         )
         self.terminate_btn.config(state=tk.NORMAL)
         self.dgsi_btn.config(state=tk.NORMAL)
+        self.stop_btn.config(state=tk.NORMAL)
         self.edit_btn.config(state=tk.NORMAL)
         self.add_btn.config(state=tk.NORMAL)
 
@@ -723,6 +710,11 @@ class Gui:
         sel = self.listbox.curselection()
         if sel:
             self.app.report(self.people[sel[0]]["label"])
+
+    def on_stop_report(self):
+        sel = self.listbox.curselection()
+        if sel:
+            self.app.stop_report(self.people[sel[0]]["label"])
 
     def on_terminate(self):
         sel = self.listbox.curselection()
