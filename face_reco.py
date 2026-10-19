@@ -1,4 +1,4 @@
-"""Reconnaissance faciale webcam : detection + infos + interface graphique."""
+"""GiscardVision : reconnaissance faciale webcam, ambiance Giscardpunk/Minitel."""
 
 import json
 import os
@@ -39,6 +39,8 @@ CELEB_MAX_DIST = 90.0
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".bmp", ".webp")
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 REF_BOX_HEIGHT = 280.0
+BANNER_HEIGHT = 54
+TITLE_TEXT = "GISCARDVISION"
 
 CASCADE = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 
@@ -56,6 +58,41 @@ FIELD_LABELS = [
     ("genre", "Genre (libre : H, F, NB, transfem, ... ce que vous voulez)"),
     ("info", "Info complementaire (facultatif)"),
 ]
+
+
+def draw_pixel_title(img, text, cx, y, color=(0, 0, 0), outline=(255, 255, 255), px=4):
+    """Titre pixelise facon Minitel : rendu minuscule puis agreandi en NEAREST,
+    avec contour d'un pixel pour rester lisible sur le fond tricolore."""
+    (tw, th), base = cv2.getTextSize(text, FONT, 0.62, 1)
+    tmp = np.zeros((th + base + 8, tw + 8), dtype=np.uint8)
+    cv2.putText(tmp, text, (4, 4 + th), FONT, 0.62, 255, 1, cv2.LINE_4)
+    kernel = np.ones((3, 3), dtype=np.uint8)
+    outline_px = cv2.dilate(tmp, kernel, iterations=1)
+    big_text = cv2.resize(tmp, (tmp.shape[1] * px, tmp.shape[0] * px), interpolation=cv2.INTER_NEAREST)
+    big_outline = cv2.resize(outline_px, (outline_px.shape[1] * px, outline_px.shape[0] * px),
+                             interpolation=cv2.INTER_NEAREST)
+    bh, bw = big_text.shape
+    x0 = cx - bw // 2
+    x1, y1 = max(0, x0), max(0, y)
+    x2, y2 = min(img.shape[1], x0 + bw), min(img.shape[0], y + bh)
+    if x2 <= x1 or y2 <= y1:
+        return
+    m_out = big_outline[y1 - y : y2 - y, x1 - x0 : x2 - x0] > 127
+    m_txt = big_text[y1 - y : y2 - y, x1 - x0 : x2 - x0] > 127
+    roi = img[y1:y2, x1:x2]
+    roi[m_out] = outline
+    roi[m_txt] = color
+
+
+def draw_giscard_banner(canvas):
+    """Bandeau tricolore bleu/blanc/rouge + titre pixelise GISCARDVISION."""
+    h, w = canvas.shape[:2]
+    bh = min(BANNER_HEIGHT, h)
+    third = w // 3
+    canvas[:bh, :third] = (255, 30, 20)
+    canvas[:bh, third : 2 * third] = (240, 240, 240)
+    canvas[:bh, 2 * third :] = (40, 30, 215)
+    draw_pixel_title(canvas, TITLE_TEXT, w // 2, max(0, (bh - 30) // 2), px=4)
 
 
 def load_db():
@@ -287,7 +324,7 @@ class App:
         self.source = None
         self.cap = None
         self.open_source(0)
-        self.window = "Reconnaissance faciale"
+        self.window = "GiscardVision"
         cv2.namedWindow(self.window, cv2.WINDOW_NORMAL)
         cv2.resizeWindow(self.window, 960, 540)
         self.fullscreen = False
@@ -523,15 +560,19 @@ class App:
                 win_w, win_h = frame.shape[1], frame.shape[0]
             if win_w > 0 and (win_w != frame.shape[1] or win_h != frame.shape[0]):
                 fh, fw = frame.shape[:2]
-                scale = min(win_w / fw, win_h / fh)
+                scale = min(win_w / fw, (win_h - BANNER_HEIGHT) / fh)
                 new_w, new_h = max(1, int(fw * scale)), max(1, int(fh * scale))
                 resized = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
                 canvas = np.zeros((win_h, win_w, 3), dtype=np.uint8)
-                ox, oy = (win_w - new_w) // 2, (win_h - new_h) // 2
+                ox = (win_w - new_w) // 2
+                oy = BANNER_HEIGHT + ((win_h - BANNER_HEIGHT) - new_h) // 2
                 canvas[oy : oy + new_h, ox : ox + new_w] = resized
+                draw_giscard_banner(canvas)
                 cv2.imshow(self.window, canvas)
             else:
-                cv2.imshow(self.window, frame)
+                canvas = frame.copy()
+                draw_giscard_banner(canvas)
+                cv2.imshow(self.window, canvas)
 
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q"):
@@ -629,14 +670,14 @@ class Gui:
         self.add_btn.pack(fill=tk.X, pady=2)
 
         self.terminate_btn = tk.Button(
-            top, text="TERMINATE", state=tk.DISABLED, bg="#d93025", fg="white",
-            font=("Arial", 12, "bold"), command=self.on_terminate,
+            top, text="TERMINATE", state=tk.DISABLED, bg="#ED2939", fg="white",
+            font=("Courier", 12, "bold"), command=self.on_terminate,
         )
         self.terminate_btn.pack(fill=tk.X, pady=5)
 
         self.dgsi_btn = tk.Button(
-            top, text="Signaler à la DGSI", state=tk.DISABLED, bg="#1a73e8", fg="white",
-            font=("Arial", 12, "bold"), command=self.on_report,
+            top, text="Signaler à la DGSI", state=tk.DISABLED, bg="#002395", fg="white",
+            font=("Courier", 12, "bold"), command=self.on_report,
         )
         self.dgsi_btn.pack(fill=tk.X, pady=5)
 
