@@ -19,6 +19,8 @@ Application Python qui utilise votre webcam pour **détecter les visages en dire
 - **Source vidéo au choix** : webcam 0/1/2… ou fichier vidéo (mp4, avi, mov…) via l'interface.
 - **Genre libre** : le champ genre est un champ libre (H, F, NB, transfem…) que vous définissez vous-même à l'enregistrement — la base de données supporte toutes les catégories.
 - **Ressemblance avec des célébrités** : déposez des photos dans `celebrites/` (un sous-dossier par célébrité) et le programme affiche la célébrité ressemblante avec un score.
+- **Texte surligné** : chaque texte affiché a un fond noir (comme surligné) → toujours lisible, même sur fond clair.
+- **DeepFace (optionnel)** : si installé (`pip install deepface`), estime **âge apparent, genre apparent et émotion** de chaque visage, affichés sous le cadre en bleu clair.
 
 ---
 
@@ -255,6 +257,8 @@ repository* sur la page du dépôt.
 - Détection par Haar Cascade : sensible à l'éclairage, visage de face de préférence.
 - L'**âge et le genre sont saisis manuellement** à l'enregistrement — le programme ne les devine pas (et ne peut pas le faire de façon fiable).
 - La ressemblance avec les célébrités est **indicative** (algorithme LBPH, pas de deep learning).
+- **DeepFace** est optionnel : sans lui, tout le reste fonctionne. Avec lui, les estimations d'âge/genre/émotion sont des **estimations automatiques** — l'âge et le genre que VOUS saisissez à l'enregistrement restent la source de vérité affichée en priorité. L'installation de DeepFace entraîne TensorFlow (~1 Go).
+- DeepFace analyse chaque visage toutes les 5 secondes (pas à chaque image) pour préserver la fluidité.
 - Reconnaissance par LBPH : fonctionne bien avec quelques échantillons, mais reste un algorithme classique (pas de deep learning).
 
 ## Licence

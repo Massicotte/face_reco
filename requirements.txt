@@ -1,3 +1,7 @@
 opencv-contrib-python==4.8.1.78
 numpy>=1.21,<2
 tkinterdnd2>=0.3.0
+
+# Optionnel : estimation age/genre/emotion sur le visage (lourd, TensorFlow)
+# pip install deepface
+deepface>=1.0.0  ; python_version >= "3.9"
