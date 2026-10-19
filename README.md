@@ -163,16 +163,20 @@ Tout est contenu dans le dossier du projet — rien n'est installé ailleurs
 2. **Supprimer l'environnement virtuel** (facultatif, il sera de toute façon
    supprimé avec le dossier) :
    ```bash
-   deactivate          # si l'environnement est encore actif
-   rm -rf .venv        # macOS / Linux
-   rmdir /s /q .venv   # Windows (cmd)
+   deactivate                    # si l'environnement est encore actif
+   rm -rf .venv                  # macOS / Linux
+   rmdir /s /q .venv             # Windows (cmd)
+   Remove-Item -Recurse -Force .venv   # Windows (PowerShell)
    ```
-3. **Supprimer le dossier du projet** :
+3. **Supprimer le dossier du projet** (depuis le dossier parent) :
    ```bash
-   cd ..
-   rm -rf face_reco        # macOS / Linux
-   rmdir /s /q face_reco   # Windows (cmd)
+   rm -rf face_reco                          # macOS / Linux
+   rmdir /s /q face_reco                     # Windows — invite de commandes (cmd)
+   Remove-Item -Recurse -Force face_reco      # Windows — PowerShell
    ```
+
+   > Note : `rmdir /s /q` ne fonctionne **pas** dans PowerShell (erreur
+   > « paramètre positionnel ») — utilisez `Remove-Item` dans PowerShell.
 
 > ⚠️ Cette étape supprime aussi `data/` : **toutes les photos de visages et
 > les infos des personnes enregistrées sont définitivement effacées.**
