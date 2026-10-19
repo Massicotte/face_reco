@@ -14,6 +14,10 @@ FACE_SIZE = (200, 200)
 MIN_FACE_SIZE = (80, 80)
 CONFIDENCE_THRESHOLD = 50.0
 FONT = cv2.FONT_HERSHEY_SIMPLEX
+SCALE_NAME = 0.48
+SCALE_INFO = 0.4
+SCALE_CONF = 0.4
+SCALE_MSG = 0.56
 
 CASCADE = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 
@@ -129,12 +133,12 @@ def draw_info(frame, box, person, confidence):
     cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
     if person:
         line1 = f"{person['prenom']} {person['nom']} | {person['age']} ans | {person['sexe']}"
-        cv2.putText(frame, line1, (x, y - 10), FONT, 0.6, color, 2)
+        cv2.putText(frame, line1, (x, y - 10), FONT, SCALE_NAME, color, 1)
         if person.get("info"):
-            cv2.putText(frame, person["info"], (x, y + h + 20), FONT, 0.5, (255, 255, 0), 1)
-        cv2.putText(frame, f"confiance: {confidence:.0f}", (x, y + h + 40), FONT, 0.5, (200, 200, 200), 1)
+            cv2.putText(frame, person["info"], (x, y + h + 20), FONT, SCALE_INFO, (255, 255, 0), 1)
+        cv2.putText(frame, f"confiance: {confidence:.0f}", (x, y + h + 40), FONT, SCALE_CONF, (200, 200, 200), 1)
     else:
-        cv2.putText(frame, "Inconnu", (x, y - 10), FONT, 0.6, color, 2)
+        cv2.putText(frame, "Inconnu", (x, y - 10), FONT, SCALE_NAME, color, 1)
 
 
 def main():
@@ -147,7 +151,10 @@ def main():
         print("Erreur : impossible d'acceder a la webcam.")
         return
 
-    print("Webcam activee. Touches : N = nouvel enregistrement | Q = quitter")
+    print("Webcam activee. Touches : N = nouvel enregistrement | F = plein ecran | Q = quitter")
+    window = "Reconnaissance faciale"
+    cv2.namedWindow(window, cv2.WINDOW_NORMAL)
+    fullscreen = False
     message = ""
     while True:
         ret, frame = cap.read()
@@ -162,12 +169,18 @@ def main():
             draw_info(frame, box, person, confidence)
 
         if message:
-            cv2.putText(frame, message, (10, 30), FONT, 0.7, (0, 200, 255), 2)
+            cv2.putText(frame, message, (10, 30), FONT, SCALE_MSG, (0, 200, 255), 1)
 
-        cv2.imshow("Reconnaissance faciale - Q pour quitter, N pour ajouter", frame)
+        cv2.imshow(window, frame)
         key = cv2.waitKey(1) & 0xFF
         if key == ord("q"):
             break
+        elif key == ord("f"):
+            fullscreen = not fullscreen
+            cv2.setWindowProperty(
+                window, cv2.WND_PROP_FULLSCREEN,
+                cv2.WINDOW_FULLSCREEN if fullscreen else cv2.WINDOW_NORMAL,
+            )
         elif key == ord("n"):
             if len(boxes) == 1:
                 message = register_person(gray, boxes[0], db, recognizer)

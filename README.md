@@ -25,7 +25,9 @@ python face_reco.py
 3. Ensuite, chaque visage reconnu affiche ses infos au-dessus du cadre :
    `Prénom Nom | âge | sexe`, plus l'info libre et un score de confiance.
 4. Visage inconnu → affiché en rouge avec « Inconnu ».
-5. **Touche `Q`** : quitter.
+5. **Touche `F`** : basculer le plein écran (la fenêtre peut aussi être
+   redimensionnée librement à la souris).
+6. **Touche `Q`** : quitter.
 
 ## Données
 
