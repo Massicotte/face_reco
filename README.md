@@ -29,6 +29,25 @@ python face_reco.py
    redimensionnée librement à la souris).
 6. **Touche `Q`** : quitter.
 
+### Import d'images (glisser-déposer)
+
+Les fenêtres OpenCV n'acceptent pas le glisser-déposer natif : le programme
+surveille donc en continu le dossier **`a_importer/`** (créé automatiquement,
+à côté de l'endroit où vous lancez le script).
+
+- Glissez-y vos photos (une ou plusieurs, tous formats courants).
+- Elles sont traitées automatiquement toutes les ~2 secondes, même pendant
+  que la webcam tourne : chaque visage détecté est ajouté comme échantillon.
+- Un visage inconnu → le programme vous demande ses infos dans le terminal,
+  puis les images suivantes montrant la même personne sont rattachées
+  automatiquement, sans rien redemander.
+- **Astuce** : glissez plusieurs photos de la même personne sous des angles
+  et éclairages différents pour une reconnaissance bien plus robuste.
+- Les images traitées sont déplacées dans `a_importer/traite/`.
+
+La taille du texte affiché est proportionnelle à la taille du cadre du visage
+(plus le visage est proche, plus le texte est grand).
+
 ## Données
 
 - `data/people.json` : les infos des personnes.
