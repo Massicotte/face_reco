@@ -154,6 +154,44 @@ Pour **réinitialiser** tout : supprimez le dossier `data/`.
 
 ---
 
+## Désinstallation
+
+Tout est contenu dans le dossier du projet — rien n'est installé ailleurs
+(pas de registre, pas de fichiers système). Trois étapes :
+
+1. **Quitter le programme** si elle tourne (touche `Q`), et fermer le terminal.
+2. **Supprimer l'environnement virtuel** (facultatif, il sera de toute façon
+   supprimé avec le dossier) :
+   ```bash
+   deactivate          # si l'environnement est encore actif
+   rm -rf .venv        # macOS / Linux
+   rmdir /s /q .venv   # Windows (cmd)
+   ```
+3. **Supprimer le dossier du projet** :
+   ```bash
+   cd ..
+   rm -rf face_reco        # macOS / Linux
+   rmdir /s /q face_reco   # Windows (cmd)
+   ```
+
+> ⚠️ Cette étape supprime aussi `data/` : **toutes les photos de visages et
+> les infos des personnes enregistrées sont définitivement effacées.**
+>
+> Pour tout supprimer **sauf les données** : déplacez le dossier `data/`
+> ailleurs avant de supprimer le dossier du projet.
+
+Si vous n'avez **pas** utilisé d'environnement virtuel, nettoyez aussi les
+paquets installés globalement :
+
+```bash
+pip uninstall opencv-contrib-python numpy -y
+```
+
+Et pour ne plus le voir sur GitHub : *Settings → Danger Zone → Delete this
+repository* sur la page du dépôt.
+
+---
+
 ## Limites
 
 - Détection par Haar Cascade : sensible à l'éclairage, visage de face de préférence.
