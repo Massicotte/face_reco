@@ -268,7 +268,8 @@ class CelebMatcher:
 
 
 class App:
-    def __init__(self):
+    def __init__(self, agent=""):
+        self.agent = agent
         self.db = load_db()
         self.recognizer = cv2.face.LBPHFaceRecognizer_create()
         retrain(self.db, self.recognizer)
@@ -599,7 +600,7 @@ class Gui:
     def __init__(self, app):
         self.app = app
         self.root = TkinterDnD.Tk() if DND_OK else tk.Tk()
-        self.root.title("GiscardVision - Terminal Officiel")
+        self.root.title(f"GiscardVision - Terminal Officiel - Agent {self.app.agent}")
         self.root.geometry("500x720")
         self.root.config(bg="#060628")
         self.root.protocol("WM_DELETE_WINDOW", app.quit)
@@ -792,6 +793,131 @@ class Gui:
         self.status_var.set("ETAT : " + msg)
 
 
+LOGIN_STEPS = [
+    "CONNEXION AU RESEAU NATIONAL",
+    "AUTHENTIFICATION DE L'INDICATIF AGENT",
+    "TELECHARGEMENT DU FICHIER NATIONAL DES INDIVIDUS",
+    "CALIBRAGE OPTIQUE DU MODULE DE SURVEILLANCE",
+    "ACQUISITION DU FLUX VIDEO",
+    "SYNCHRONISATION AVEC LA DGSI",
+]
+
+
+def login_screen():
+    """Ecran d'authentification : indicatif agent (toute valeur est acceptee)."""
+    root = tk.Tk()
+    root.title("GiscardVision - Acces Officiel")
+    root.geometry("460x380")
+    root.configure(bg="#060628")
+    root.resizable(False, False)
+    result = {"agent": None}
+
+    BG, CYAN = "#060628", "#58d6ff"
+    strip = tk.Frame(root, height=8, bg=BG)
+    strip.pack(fill=tk.X, padx=10, pady=(10, 0))
+    strip.pack_propagate(False)
+    tk.Frame(strip, bg="#002395").pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    tk.Frame(strip, bg="#ffffff").pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    tk.Frame(strip, bg="#ED2939").pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+    tk.Label(root, text="G I S C A R D V I S I O N", bg=BG, fg=CYAN,
+             font=("Courier", 16, "bold")).pack(pady=(10, 0))
+    tk.Label(root, text="LOGICIEL OFFICIEL DE SURVEILLANCE DES POPULATIONS",
+             bg=BG, fg="#ffb000", font=("Courier", 8, "bold")).pack()
+    tk.Label(root, text="AUTHENTIFICATION OBLIGATOIRE", bg=BG, fg="#e8e8e8",
+             font=("Courier", 9, "bold")).pack(pady=(4, 18))
+
+    tk.Label(root, text="INDICATIF AGENT :", bg=BG, fg=CYAN,
+             font=("Courier", 11, "bold")).pack()
+    entry = tk.Entry(root, bg="#0a0a2e", fg=CYAN, insertbackground=CYAN, show="*",
+                     justify=tk.CENTER, font=("Courier", 12), width=18)
+    entry.pack(pady=6, ipady=4)
+    entry.focus_set()
+
+    def submit(_event=None):
+        result["agent"] = entry.get().strip() or "X-1978"
+        root.destroy()
+
+    tk.Button(root, text="CONNEXION", bg="#002395", fg="white",
+              font=("Courier", 11, "bold"), command=submit).pack(pady=8, ipadx=14)
+    root.bind("<Return>", submit)
+
+    tk.Label(root, text="SECRET DEFENSE - NE PAS DIFFUSER - (C) 1978 MINISTERE DE L'INTERIEUR",
+             bg=BG, fg="#7a7a8a", font=("Courier", 7)).pack(side=tk.BOTTOM, pady=6)
+
+    tk.mainloop()
+    return result["agent"]
+
+
+def loading_screen(agent):
+    """Ecran de chargement videotex : plan technique quadrille + progression."""
+    root = tk.Tk()
+    root.title("GiscardVision - Initialisation")
+    root.geometry("640x480")
+    root.configure(bg="#2a1450")
+    root.resizable(False, False)
+    cv = tk.Canvas(root, width=640, height=480, bg="#2a1450", highlightthickness=0)
+    cv.pack()
+    for x in range(0, 641, 24):
+        cv.create_line(x, 0, x, 480, fill="#3d2266")
+    for y in range(0, 481, 24):
+        cv.create_line(0, y, 640, y, fill="#3d2266")
+
+    CYAN = "#58d6ff"
+    cv.create_text(320, 26, text="GISCARDVISION - MODULE DE SURVEILLANCE OPTIQUE T25",
+                   fill=CYAN, font=("Courier", 12, "bold"))
+    # plan technique eclate : camera de surveillance
+    cv.create_rectangle(240, 160, 340, 230, outline=CYAN, width=2)
+    cv.create_oval(326, 169, 378, 221, outline=CYAN, width=2)
+    cv.create_oval(342, 185, 362, 205, outline=CYAN)
+    cv.create_line(240, 195, 196, 195, fill=CYAN, width=2)
+    cv.create_line(196, 195, 196, 252, fill=CYAN, width=2)
+    cv.create_line(166, 252, 226, 252, fill=CYAN, width=2)
+    cv.create_line(378, 195, 452, 150, fill=CYAN, dash=(4, 4))
+    cv.create_line(378, 195, 452, 240, fill=CYAN, dash=(4, 4))
+    cv.create_oval(442, 182, 462, 202, outline=CYAN)
+    cv.create_line(452, 182, 452, 202, fill=CYAN)
+    cv.create_line(442, 192, 462, 192, fill=CYAN)
+    cv.create_text(452, 170, text="CIBLE", fill=CYAN, font=("Courier", 8))
+    cv.create_text(290, 244, text="OPTIQUE 50MM", fill=CYAN, font=("Courier", 8))
+    cv.create_text(290, 132, text="CAPTEUR CCD - VUE ECLATEE", fill=CYAN, font=("Courier", 8))
+
+    cv.create_text(320, 318, text=f"INDICATIF {agent} ACCEPTE", fill="#f7d117",
+                   font=("Courier", 10, "bold"))
+    step_text = cv.create_text(320, 342, text="", fill="#e8e8e8", font=("Courier", 10))
+    cv.create_rectangle(140, 356, 500, 376, outline=CYAN)
+    fill_rect = cv.create_rectangle(141, 357, 141, 375, fill="#00b04f", outline="")
+    blink = cv.create_text(320, 396, text="VEUILLEZ PATIENTER - NE PAS INTERROMPRE",
+                           fill="#f7d117", font=("Courier", 9, "bold"))
+
+    pal = ["#ffffff", "#f7d117", "#00b04f", "#58d6ff", "#002395", "#ED2939", "#ff00ff", "#060628"]
+    for i, c in enumerate(pal):
+        cv.create_rectangle(i * 80, 442, (i + 1) * 80, 466, fill=c, outline="")
+    cv.create_text(320, 474, text="MINISTERE DE L'INTERIEUR - REPUBLIQUE FRANCAISE - (C) 1978",
+                   fill="#a08ac0", font=("Courier", 7))
+
+    def blink_toggle():
+        current = cv.itemcget(blink, "fill")
+        cv.itemconfig(blink, fill="#7a5a1a" if current == "#f7d117" else "#f7d117")
+        root.after(400, blink_toggle)
+    blink_toggle()
+
+    def run_step(i):
+        if i >= len(LOGIN_STEPS):
+            root.after(500, root.destroy)
+            return
+        cv.itemconfig(step_text, text=LOGIN_STEPS[i] + " ...")
+        w = int(358 * (i + 1) / len(LOGIN_STEPS))
+        cv.coords(fill_rect, 141, 357, 141 + w, 375)
+        root.after(750, run_step, i + 1)
+
+    run_step(0)
+    tk.mainloop()
+
+
 if __name__ == "__main__":
-    app = App()
-    app.run()
+    agent = login_screen()
+    if agent is not None:
+        loading_screen(agent)
+        app = App(agent)
+        app.run()
