@@ -485,7 +485,7 @@ class App:
             cv2.circle(frame, (cx, cy), max(5, r // 2), (0, 0, 255), 2)
             cv2.line(frame, (cx - r - 8, cy), (cx + r + 8, cy), (0, 0, 255), 2)
             cv2.line(frame, (cx, cy - r - 8), (cx, cy + r + 8), (0, 0, 255), 2)
-            draw_text_bg(frame, "sur ecoute", (x, y + h + int((offset + 62) * factor)), FONT, small_s, (0, 0, 255), max(2, th))
+            draw_text_bg(frame, "sur ecoute", (x, y + h + int((offset + 62) * factor)), FONT, small_s, (0, 0, 255), 1)
 
     def tick(self):
         ret, frame = self.cap.read()
@@ -618,29 +618,33 @@ class Gui:
 
         tk.Label(self.root, text="G I S C A R D V I S I O N", bg=BG, fg=FG_CYAN,
                  font=("Courier", 18, "bold")).pack(pady=(6, 0))
-        tk.Label(self.root, text="LOGICIEL OFFICIEL DE SURVEILLANCE DES POPULATIONS", bg=BG, fg="#ffb000",
+        tk.Label(self.root, text="SURVEILLANCE OFFICIELLE DES CAMGIRLS DU CAPITAL", bg=BG, fg="#ffb000",
                  font=("Courier", 9, "bold")).pack()
-        tk.Label(self.root, text="MINISTERE DE L'INTERIEUR - REPUBLIQUE FRANCAISE - EDITION 1978",
+        tk.Label(self.root, text="MINISTERE DE L'INTERIEUR - REPUBLIQUE FRANCAISE - EDITION 2028",
                  bg=BG, fg="#7a7a8a", font=("Courier", 8)).pack()
-        self._blink_labels = [
-            tk.Label(self.root, text="* TERMINAL SECURISE - ACCES OFFICIEL *", bg=BG, fg="#ffb000",
-                     font=("Courier", 9, "bold")),
-        ]
-        self._blink_labels[0].pack(pady=(2, 0))
-        self._blink_on = True
-        self.root.after(500, self._blink)
+        tk.Label(self.root, text="* TERMINAL SECURISE - ACCES OFFICIEL *", bg=BG, fg="#ffb000",
+                 font=("Courier", 9, "bold")).pack(pady=(2, 0))
 
         self.status_var = tk.StringVar(value="ETAT : Pret.")
         top = tk.Frame(self.root, bg=BG)
         top.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        drop_txt = ("ZONE DE TRANSMISSION\n\n"
-                    "Deposez ici les photos des individus a ficher\n"
+        drop_txt = ("Deposez ici les photos des individus a ficher\n"
                     "(un dossier = un individu, ex : Jean_Dupont/)\n"
                     "Celebrites : a deposer dans le dossier celebrites/")
-        self.drop_zone = tk.Label(top, text=drop_txt, relief="groove", bd=2, height=6,
+        tx_frame = tk.Frame(top, bg=BG)
+        tx_frame.pack(fill=tk.X, pady=5)
+        self.drop_zone = tk.Label(tx_frame, text=drop_txt, relief="groove", bd=2, height=6,
                                   bg="#0b0b3a", fg=FG_CYAN, font=("Courier", 9))
-        self.drop_zone.pack(fill=tk.X, pady=5)
+        self.drop_zone.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        try:
+            from PIL import Image, ImageTk
+            tx_img = Image.open("assets/transmission.png")
+            tx_img = tx_img.resize((tx_img.width * 2, min(150, tx_img.height * 2)), Image.NEAREST)
+            self.tx_photo = ImageTk.PhotoImage(tx_img)
+            tk.Label(tx_frame, image=self.tx_photo, relief="groove", bd=2).pack(side=tk.LEFT, padx=(6, 0))
+        except Exception:
+            self.tx_photo = None
         if DND_OK:
             self.drop_zone.drop_target_register(DND_FILES)
             self.drop_zone.bind("<<Drop>>", self.on_drop)
@@ -650,7 +654,7 @@ class Gui:
             tk.Button(top, text="Importer des images... (pip install tkinterdnd2 pour le glisser-deposer)",
                       font=("Courier", 9), command=self.browse_files).pack(pady=5)
 
-        tk.Label(top, text="FICHIER NATIONAL DES INDIVIDUS :", bg=BG, fg=FG_CYAN,
+        tk.Label(top, text="FICHIER NATIONAL DES SUSPECT-ES :", bg=BG, fg=FG_CYAN,
                  font=("Courier", 10, "bold")).pack(anchor="w", pady=(5, 0))
         self.listbox = tk.Listbox(top, height=8, bg="#0a0a2e", fg=FG_CYAN,
                                  selectbackground="#002395", selectforeground="#ffffff",
@@ -680,13 +684,13 @@ class Gui:
         self.terminate_btn.pack(fill=tk.X, pady=5)
 
         self.dgsi_btn = tk.Button(
-            top, text="Signaler à la DGSI", state=tk.DISABLED, bg="#002395", fg="white",
+            top, text="SIGNALER A LA DGSI", state=tk.DISABLED, bg="#002395", fg="white",
             font=("Courier", 12, "bold"), command=self.on_report,
         )
         self.dgsi_btn.pack(fill=tk.X, pady=5)
 
         self.stop_btn = tk.Button(
-            top, text="CESSER D'ECOUTER", state=tk.DISABLED, bg="#58d6ff", fg="#060628",
+            top, text="CESSER D'ECOUTER", state=tk.DISABLED, bg="#002395", fg="white",
             font=("Courier", 12, "bold"), command=self.on_stop_report,
         )
         self.stop_btn.pack(fill=tk.X, pady=5)
@@ -694,15 +698,8 @@ class Gui:
         tk.Label(self.root, textvariable=self.status_var, bg="#0a0a2e", fg="#ffb000",
                  font=("Courier", 9), anchor="w", relief="sunken").pack(
             fill=tk.X, padx=10, pady=(5, 0), ipady=4)
-        tk.Label(self.root, text="SECRET DEFENSE - NE PAS DIFFUSER - (C) 1978 MINISTERE DE L'INTERIEUR",
+        tk.Label(self.root, text="SECRET DEFENSE - NE PAS DIFFUSER - (C) 2028 MINISTERE DE L'INTERIEUR",
                  bg=BG, fg="#7a7a8a", font=("Courier", 7)).pack(pady=(2, 6))
-
-    def _blink(self):
-        self._blink_on = not self._blink_on
-        fg = "#ffb000" if self._blink_on else "#3a3a4a"
-        for lbl in self._blink_labels:
-            lbl.config(fg=fg)
-        self.root.after(500, self._blink)
 
     def refresh_list(self):
         self.listbox.delete(0, tk.END)
@@ -796,7 +793,7 @@ class Gui:
 LOGIN_STEPS = [
     "CONNEXION AU RESEAU NATIONAL",
     "AUTHENTIFICATION DE L'INDICATIF AGENT",
-    "TELECHARGEMENT DU FICHIER NATIONAL DES INDIVIDUS",
+    "TELECHARGEMENT DU FICHIER NATIONAL DES SUSPECT-ES",
     "CALIBRAGE OPTIQUE DU MODULE DE SURVEILLANCE",
     "ACQUISITION DU FLUX VIDEO",
     "SYNCHRONISATION AVEC LA DGSI",
@@ -822,7 +819,7 @@ def login_screen():
 
     tk.Label(root, text="G I S C A R D V I S I O N", bg=BG, fg=CYAN,
              font=("Courier", 16, "bold")).pack(pady=(10, 0))
-    tk.Label(root, text="LOGICIEL OFFICIEL DE SURVEILLANCE DES POPULATIONS",
+    tk.Label(root, text="SURVEILLANCE OFFICIELLE DES CAMGIRLS DU CAPITAL",
              bg=BG, fg="#ffb000", font=("Courier", 8, "bold")).pack()
     tk.Label(root, text="AUTHENTIFICATION OBLIGATOIRE", bg=BG, fg="#e8e8e8",
              font=("Courier", 9, "bold")).pack(pady=(4, 18))
@@ -835,14 +832,14 @@ def login_screen():
     entry.focus_set()
 
     def submit(_event=None):
-        result["agent"] = entry.get().strip() or "X-1978"
+        result["agent"] = entry.get().strip() or "X-2028"
         root.destroy()
 
     tk.Button(root, text="CONNEXION", bg="#002395", fg="white",
               font=("Courier", 11, "bold"), command=submit).pack(pady=8, ipadx=14)
     root.bind("<Return>", submit)
 
-    tk.Label(root, text="SECRET DEFENSE - NE PAS DIFFUSER - (C) 1978 MINISTERE DE L'INTERIEUR",
+    tk.Label(root, text="SECRET DEFENSE - NE PAS DIFFUSER - (C) 2028 MINISTERE DE L'INTERIEUR",
              bg=BG, fg="#7a7a8a", font=("Courier", 7)).pack(side=tk.BOTTOM, pady=6)
 
     tk.mainloop()
@@ -893,7 +890,7 @@ def loading_screen(agent):
     pal = ["#ffffff", "#f7d117", "#00b04f", "#58d6ff", "#002395", "#ED2939", "#ff00ff", "#060628"]
     for i, c in enumerate(pal):
         cv.create_rectangle(i * 80, 442, (i + 1) * 80, 466, fill=c, outline="")
-    cv.create_text(320, 474, text="MINISTERE DE L'INTERIEUR - REPUBLIQUE FRANCAISE - (C) 1978",
+    cv.create_text(320, 474, text="MINISTERE DE L'INTERIEUR - REPUBLIQUE FRANCAISE - (C) 2028",
                    fill="#a08ac0", font=("Courier", 7))
 
     def blink_toggle():
@@ -909,7 +906,7 @@ def loading_screen(agent):
         cv.itemconfig(step_text, text=LOGIN_STEPS[i] + " ...")
         w = int(358 * (i + 1) / len(LOGIN_STEPS))
         cv.coords(fill_rect, 141, 357, 141 + w, 375)
-        root.after(750, run_step, i + 1)
+        root.after(1500, run_step, i + 1)
 
     run_step(0)
     tk.mainloop()
