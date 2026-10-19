@@ -353,6 +353,20 @@ class App:
         save_face_sample(gray, box, person["label"])
         retrain(self.db, self.recognizer)
 
+    def add_sample_now(self, person):
+        """Capture le visage actuellement filme et l'ajoute a la personne selectionnee."""
+        ret, frame = self.cap.read()
+        if not ret:
+            self.gui.set_status("Webcam inaccessible.")
+            return
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        boxes = CASCADE.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=5, minSize=MIN_FACE_SIZE)
+        if len(boxes) != 1:
+            self.gui.set_status("Montrez exactement UN visage pour ajouter un echantillon.")
+            return
+        self.add_sample(gray, boxes[0], person)
+        self.gui.set_status(f"Nouvel echantillon pour {person['prenom']} {person['nom']}.")
+
     def process_folder_for_person(self, folder_path, person):
         added = 0
         for fname in sorted(os.listdir(folder_path)):
@@ -610,6 +624,10 @@ class Gui:
                                   command=self.on_edit)
         self.edit_btn.pack(fill=tk.X, pady=2)
 
+        self.add_btn = tk.Button(top, text="Ajouter un échantillon (photo)", state=tk.DISABLED,
+                                 command=self.on_add_sample)
+        self.add_btn.pack(fill=tk.X, pady=2)
+
         self.terminate_btn = tk.Button(
             top, text="TERMINATE", state=tk.DISABLED, bg="#d93025", fg="white",
             font=("Arial", 12, "bold"), command=self.on_terminate,
@@ -633,6 +651,7 @@ class Gui:
         self.terminate_btn.config(state=tk.DISABLED)
         self.dgsi_btn.config(state=tk.DISABLED)
         self.edit_btn.config(state=tk.DISABLED)
+        self.add_btn.config(state=tk.DISABLED)
         self.details.config(text="Selectionnez une personne.")
 
     def on_select(self, _event):
@@ -647,11 +666,17 @@ class Gui:
         self.terminate_btn.config(state=tk.NORMAL)
         self.dgsi_btn.config(state=tk.NORMAL)
         self.edit_btn.config(state=tk.NORMAL)
+        self.add_btn.config(state=tk.NORMAL)
 
     def on_edit(self):
         sel = self.listbox.curselection()
         if sel:
             self.app.edit_person(self.people[sel[0]])
+
+    def on_add_sample(self):
+        sel = self.listbox.curselection()
+        if sel:
+            self.app.add_sample_now(self.people[sel[0]])
 
     def on_report(self):
         sel = self.listbox.curselection()
