@@ -36,24 +36,11 @@ POS_ALPHA = 0.35
 SIZE_ALPHA = 0.6
 CELEB_TOP_K = 3
 CELEB_MAX_DIST = 90.0
-DF_INTERVAL = 5.0
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".bmp", ".webp")
-VIDEO_EXTS = (".mp4", ".avi", ".mov", ".mkv", ".webm", ".m4v")
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 REF_BOX_HEIGHT = 280.0
 
 CASCADE = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-EMOTIONS_FR = {
-    "happy": "joie", "sad": "triste", "angry": "colere", "surprise": "surprise",
-    "fear": "peur", "disgust": "degout", "neutral": "neutre",
-}
-GENDER_FR = {"Man": "Homme", "Woman": "Femme"}
-
-try:
-    from deepface import DeepFace
-    DF_OK = True
-except ImportError:
-    DF_OK = False
 
 
 def draw_text_bg(frame, text, org, font, scale, color, thickness=1):
@@ -147,8 +134,6 @@ class FaceTrack:
         self.confidence = 0.0
         self.next_predict = 0.0
         self.celeb = None
-        self.deepface = None
-        self.next_deepface = 0.0
 
     def iou(self, box):
         ax, ay, aw, ah = self.box
@@ -294,6 +279,9 @@ class App:
         self.explosions = []
         self.pending_terminate = None
         self.terminate_deadline = 0.0
+        self.pending_report = None
+        self.report_deadline = 0.0
+        self.sur_ecoute = set()
         self.last_poll = 0.0
         self.running = False
         self.source = None
@@ -319,31 +307,6 @@ class App:
         self.tracker = FaceTracker()
         return True
 
-    def choose_video_source(self):
-        path = filedialog.askopenfilename(
-            title="Choisir un fichier video",
-            filetypes=[("Videos", " ".join("*" + e for e in VIDEO_EXTS)), ("Tous", "*.*")],
-            parent=self.gui.root,
-        )
-        if not path:
-            return
-        if self.open_source(path):
-            self.gui.set_status(f"Source : {os.path.basename(path)}")
-        else:
-            messagebox.showerror("Erreur", "Impossible d'ouvrir ce fichier video.", parent=self.gui.root)
-
-    def choose_camera(self):
-        index = simpledialog.askinteger(
-            "Choisir la webcam", "Numero de la webcam (0, 1, 2, ...) :", initialvalue=0,
-            minvalue=0, parent=self.gui.root,
-        )
-        if index is None:
-            return
-        if self.open_source(index):
-            self.gui.set_status(f"Source : webcam {index}")
-        else:
-            messagebox.showerror("Erreur", f"Webcam {index} inaccessible.", parent=self.gui.root)
-
     # ---- enregistrement / import ----
 
     def prompt_new_person(self, nom_defaut=""):
@@ -368,6 +331,23 @@ class App:
             save_db(self.db)
             self.gui.refresh_list()
         return person
+
+    def edit_person(self, person):
+        """Modifie les informations d'une personne enregistree."""
+        for key, label in FIELD_LABELS:
+            current = str(person.get(key, "") or "")
+            val = simpledialog.askstring("Modifier personne", label + " :",
+                                         initialvalue=current, parent=self.gui.root)
+            if val is None:
+                return False
+            person[key] = val.strip() or ("?" if key in ("age", "genre") else "")
+        old_nom = next(k for k, v in self.db.items() if v is person)
+        self.db.pop(old_nom)
+        self.db[person["nom"]] = person
+        save_db(self.db)
+        self.gui.refresh_list()
+        self.gui.set_status(f"{person['prenom']} {person['nom']} : informations modifiees.")
+        return True
 
     def add_sample(self, gray, box, person):
         save_face_sample(gray, box, person["label"])
@@ -436,40 +416,19 @@ class App:
             self.gui.refresh_list()
         return bool(moved or flat)
 
-    # ---- Terminate ----
+    # ---- Terminate / Signalement DGSI ----
 
     def terminate(self, label):
         self.pending_terminate = label
         self.terminate_deadline = time.time() + 5.0
         self.gui.set_status("Cible verrouillee : montrez son visage a la camera (5 s)...")
 
-    # ---- boucle video ----
+    def report(self, label):
+        self.pending_report = label
+        self.report_deadline = time.time() + 5.0
+        self.gui.set_status("Signalement DGSI : montrez son visage a la camera (5 s)...")
 
-    def deepface_analyze(self, frame, box):
-        """Estimation DeepFace (age apparent, genre apparent, emotion) ou None."""
-        if not DF_OK:
-            return None
-        x, y, w, h = box
-        pad = int(0.25 * max(w, h))
-        crop = frame[max(0, y - pad): y + h + pad, max(0, x - pad): x + w + pad]
-        if crop.size == 0:
-            return None
-        try:
-            res = DeepFace.analyze(
-                crop, actions=["age", "gender", "emotion"],
-                detector_backend="skip", enforce_detection=False, silent=True,
-            )
-            res = res[0] if isinstance(res, list) else res
-            age = int(res.get("age", 0))
-            gender = res.get("dominant_gender", "")
-            emotion = res.get("dominant_emotion", "")
-            return {
-                "age": age,
-                "genre": GENDER_FR.get(gender, gender),
-                "emotion": EMOTIONS_FR.get(emotion, emotion),
-            }
-        except Exception:
-            return None
+    # ---- boucle video ----
 
     def draw_track(self, frame, track):
         x, y, w, h = track.int_box
@@ -486,7 +445,7 @@ class App:
             if person.get("info"):
                 offset += 20
                 draw_text_bg(frame, person["info"], (x, y + h + int(offset * factor)), FONT, small_s, (255, 255, 0), 1)
-            draw_text_bg(frame, f"confiance: {confidence:.0f}", (x, y + h + int((offset + 22) * factor)), FONT, small_s, (200, 200, 200), 1)
+            draw_text_bg(frame, f"factieux a {confidence:.0f}%", (x, y + h + int((offset + 22) * factor)), FONT, small_s, (200, 200, 200), 1)
             if track.celeb is not None:
                 name, sim = track.celeb
                 draw_text_bg(frame, f"~ {name} ({sim:.0f}%)", (x, y + h + int((offset + 42) * factor)), FONT, small_s, (255, 150, 255), 1)
@@ -495,22 +454,23 @@ class App:
             if track.celeb is not None:
                 name, sim = track.celeb
                 draw_text_bg(frame, f"~ {name} ({sim:.0f}%)", (x, y + h + int(20 * factor)), FONT, small_s, (255, 150, 255), 1)
-        if track.deepface is not None:
-            df = track.deepface
-            df_line = f"~{df['age']} ans | {df['genre']} | {df['emotion']}"
-            draw_text_bg(frame, df_line, (x, y + h + int(((offset if person else 0) + 62) * factor)), FONT, small_s, (120, 220, 255), 1)
+        if person is not None and person["label"] in self.sur_ecoute:
+            cx = x + w // 2
+            cy = y + max(10, int(h * 0.12))
+            r = max(14, w // 3)
+            cv2.circle(frame, (cx, cy), r, (0, 0, 255), max(2, th))
+            cv2.circle(frame, (cx, cy), max(5, r // 2), (0, 0, 255), 2)
+            cv2.line(frame, (cx - r - 8, cy), (cx + r + 8, cy), (0, 0, 255), 2)
+            cv2.line(frame, (cx, cy - r - 8), (cx, cy + r + 8), (0, 0, 255), 2)
+            draw_text_bg(frame, "sur ecoute", (x, y + h + int((offset + 62) * factor)), FONT, small_s, (0, 0, 255), max(2, th))
 
     def tick(self):
         ret, frame = self.cap.read()
         now = time.time()
         if not ret:
-            if isinstance(self.source, str) and os.path.exists(self.source):
-                self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                ret, frame = self.cap.read()
-            if not ret:
-                self.gui.set_status("Fin de la source video.")
-                self.quit()
-                return
+            self.gui.set_status("Flux webcam interrompu.")
+            self.quit()
+            return
         if ret:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             boxes = CASCADE.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=5, minSize=MIN_FACE_SIZE)
@@ -522,9 +482,6 @@ class App:
                     track.confidence = confidence
                     track.celeb = self.celeb.best_match(gray, track.int_box)
                     track.next_predict = now + PREDICT_INTERVAL
-                if DF_OK and now >= track.next_deepface:
-                    track.deepface = self.deepface_analyze(frame, track.int_box)
-                    track.next_deepface = now + DF_INTERVAL
                 self.draw_track(frame, track)
                 if self.pending_terminate is not None and track.person is not None \
                         and track.person["label"] == self.pending_terminate:
@@ -532,9 +489,17 @@ class App:
                     self.explosions.append(Explosion(x + w // 2, y + h // 2, w, now))
                     self.pending_terminate = None
                     self.gui.set_status(f"{track.person['prenom']} {track.person['nom']} : terminee.")
+                if self.pending_report is not None and track.person is not None \
+                        and track.person["label"] == self.pending_report:
+                    self.sur_ecoute.add(track.person["label"])
+                    self.pending_report = None
+                    self.gui.set_status(f"{track.person['prenom']} {track.person['nom']} : signalee a la DGSI, sur ecoute.")
             if self.pending_terminate is not None and now > self.terminate_deadline:
                 self.gui.set_status("Cible non visible a l'ecran.")
                 self.pending_terminate = None
+            if self.pending_report is not None and now > self.report_deadline:
+                self.gui.set_status("Cible non visible a l'ecran.")
+                self.pending_report = None
             self.explosions = [e for e in self.explosions if e.draw(frame, now)]
 
             try:
@@ -619,13 +584,6 @@ class Gui:
         top = tk.Frame(self.root)
         top.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        src = tk.Frame(top)
-        src.pack(fill=tk.X)
-        tk.Label(src, text="Source video :").pack(side=tk.LEFT)
-        tk.Button(src, text="Fichier video...", command=app.choose_video_source).pack(side=tk.LEFT, padx=5)
-        tk.Button(src, text="Changer de webcam", command=app.choose_camera).pack(side=tk.LEFT)
-        tk.Button(src, text="Retour webcam 0", command=lambda: app.open_source(0) or None).pack(side=tk.LEFT, padx=5)
-
         drop_txt = ("ZONE DE DEPOT\n\nGlissez ici des images ou des dossiers\n"
                     "(un dossier = une personne, ex : Jean_Dupont/)\n"
                     "Celebrites : deposez-les dans le dossier celebrites/")
@@ -648,18 +606,24 @@ class Gui:
         self.details = tk.Label(top, text="Selectionnez une personne.", justify=tk.LEFT, anchor="w", wraplength=440)
         self.details.pack(fill=tk.X, pady=5)
 
+        self.edit_btn = tk.Button(top, text="Modifier les informations...", state=tk.DISABLED,
+                                  command=self.on_edit)
+        self.edit_btn.pack(fill=tk.X, pady=2)
+
         self.terminate_btn = tk.Button(
             top, text="TERMINATE", state=tk.DISABLED, bg="#d93025", fg="white",
             font=("Arial", 12, "bold"), command=self.on_terminate,
         )
         self.terminate_btn.pack(fill=tk.X, pady=5)
 
+        self.dgsi_btn = tk.Button(
+            top, text="Signaler à la DGSI", state=tk.DISABLED, bg="#1a73e8", fg="white",
+            font=("Arial", 12, "bold"), command=self.on_report,
+        )
+        self.dgsi_btn.pack(fill=tk.X, pady=5)
+
         tk.Label(self.root, textvariable=self.status_var, fg="#0b57d0", wraplength=450, justify=tk.LEFT).pack(
             fill=tk.X, padx=10, pady=5)
-        df_note = "DeepFace : actif (age/genre/emotion estimes)" if DF_OK else \
-            "DeepFace : non installe (pip install deepface pour l'age/genre/emotion estimes)"
-        tk.Label(self.root, text=df_note, fg="#666", wraplength=450, justify=tk.LEFT).pack(
-            fill=tk.X, padx=10)
 
     def refresh_list(self):
         self.listbox.delete(0, tk.END)
@@ -667,6 +631,8 @@ class Gui:
         for p in self.people:
             self.listbox.insert(tk.END, f"{p['prenom']} {p['nom']}")
         self.terminate_btn.config(state=tk.DISABLED)
+        self.dgsi_btn.config(state=tk.DISABLED)
+        self.edit_btn.config(state=tk.DISABLED)
         self.details.config(text="Selectionnez une personne.")
 
     def on_select(self, _event):
@@ -679,6 +645,18 @@ class Gui:
                  f"Info : {p.get('info', '')}\nEnregistre le : {p.get('enregistre_le', '?')}"
         )
         self.terminate_btn.config(state=tk.NORMAL)
+        self.dgsi_btn.config(state=tk.NORMAL)
+        self.edit_btn.config(state=tk.NORMAL)
+
+    def on_edit(self):
+        sel = self.listbox.curselection()
+        if sel:
+            self.app.edit_person(self.people[sel[0]])
+
+    def on_report(self):
+        sel = self.listbox.curselection()
+        if sel:
+            self.app.report(self.people[sel[0]]["label"])
 
     def on_terminate(self):
         sel = self.listbox.curselection()
