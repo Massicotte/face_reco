@@ -601,7 +601,7 @@ class Gui:
         self.app = app
         self.root = TkinterDnD.Tk() if DND_OK else tk.Tk()
         self.root.title(f"GiscardVision - Terminal Officiel - Agent {self.app.agent}")
-        self.root.geometry("500x720")
+        self.root.geometry("500x800")
         self.root.config(bg="#060628")
         self.root.protocol("WM_DELETE_WINDOW", app.quit)
         self.people = []
@@ -629,30 +629,15 @@ class Gui:
         top = tk.Frame(self.root, bg=BG)
         top.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        drop_txt = ("Deposez ici les photos des individus a ficher\n"
-                    "(un dossier = un individu, ex : Jean_Dupont/)\n"
-                    "Celebrites : a deposer dans le dossier celebrites/")
-        tx_frame = tk.Frame(top, bg=BG)
-        tx_frame.pack(fill=tk.X, pady=5)
-        self.drop_zone = tk.Label(tx_frame, text=drop_txt, relief="groove", bd=2, height=6,
-                                  bg="#0b0b3a", fg=FG_CYAN, font=("Courier", 9))
-        self.drop_zone.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        try:
-            from PIL import Image, ImageTk
-            tx_img = Image.open("assets/transmission.png")
-            tx_img = tx_img.resize((tx_img.width * 2, min(150, tx_img.height * 2)), Image.NEAREST)
-            self.tx_photo = ImageTk.PhotoImage(tx_img)
-            tk.Label(tx_frame, image=self.tx_photo, relief="groove", bd=2).pack(side=tk.LEFT, padx=(6, 0))
-        except Exception:
-            self.tx_photo = None
+        tk.Label(top, text="Glissez vos photos n'importe ou dans cette fenetre\n"
+                           "(un dossier = un individu, ex : Jean_Dupont/)",
+                 bg=BG, fg="#7a7a8a", font=("Courier", 8)).pack(anchor="w")
         if DND_OK:
-            self.drop_zone.drop_target_register(DND_FILES)
-            self.drop_zone.bind("<<Drop>>", self.on_drop)
-            self.drop_zone.bind("<Enter>", lambda e: self.drop_zone.config(bg="#14225e"))
-            self.drop_zone.bind("<Leave>", lambda e: self.drop_zone.config(bg="#0b0b3a"))
+            self.root.drop_target_register(DND_FILES)
+            self.root.bind("<<Drop>>", self.on_drop)
         else:
             tk.Button(top, text="Importer des images... (pip install tkinterdnd2 pour le glisser-deposer)",
-                      font=("Courier", 9), command=self.browse_files).pack(pady=5)
+                      font=("Courier", 9), command=self.browse_files).pack(pady=2)
 
         tk.Label(top, text="FICHIER NATIONAL DES SUSPECT-ES :", bg=BG, fg=FG_CYAN,
                  font=("Courier", 10, "bold")).pack(anchor="w", pady=(5, 0))
