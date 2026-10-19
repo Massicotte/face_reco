@@ -20,7 +20,7 @@ Application Python qui utilise votre webcam pour **détecter les visages en dire
 - **Genre libre** : le champ genre est un champ libre (H, F, NB, transfem…) que vous définissez vous-même à l'enregistrement — la base de données supporte toutes les catégories.
 - **Ressemblance avec des célébrités** : déposez des photos dans `celebrites/` (un sous-dossier par célébrité) et le programme affiche la célébrité ressemblante avec un score.
 - **Texte surligné** : chaque texte affiché a un fond noir (comme surligné) → toujours lisible, même sur fond clair.
-- **DeepFace (optionnel)** : si installé (`pip install deepface`), estime **âge apparent, genre apparent et émotion** de chaque visage, affichés sous le cadre en bleu clair.
+- **Modification des infos** : sélectionnez une personne dans la liste → bouton **« Modifier les infos »** pour corriger nom, prénom, âge, genre et info libre (champs pré-remplis).
 
 ---
 
@@ -119,6 +119,7 @@ Au lancement, **deux fenêtres** s'ouvrent : la vidéo webcam et le panneau de c
 - **Zone de dépôt** : glissez-déposez directement vos images ou dossiers dessus (nécessite `tkinterdnd2`, installé par `requirements.txt`).
 - **Source vidéo** : boutons « Fichier video... » (analyse un fichier mp4/avi/mov...), « Changer de webcam » (numéro 0, 1, 2...), « Retour webcam 0 ». La vidéo s'affiche toujours sans déformation, quelle que soit la taille de la fenêtre.
 - **Liste des personnes** : toutes les personnes enregistrées. Cliquez sur un nom → ses détails s'affichent (nom, prénom, âge, genre, info, date d'enregistrement).
+- **Bouton « Modifier les infos »** : activé quand une personne est sélectionnée. Chaque champ (nom, prénom, âge, genre, info) est proposé pré-rempli — corrigez ce que vous voulez, ou cliquez sur `Annuler` pour tout abandonner sans rien changer.
 - **Bouton TERMINATE** : apparaît (activé) quand une personne est sélectionnée. Au clic, le programme attendjusqu'à 5 s que cette personne soit reconnue à l'écran → **animation d'explosion** sur son visage 🎆
 - **Messages de statut** : résultat des imports, confirmations, erreurs — plus besoin de regarder le terminal.
 
@@ -190,6 +191,8 @@ celebrites/
 
 > ⚠️ **Vie privée** : `data/` contient des photos de visages et des informations personnelles. Ce dossier est exclu de git via `.gitignore` — ne le partagez pas.
 
+Pour **modifier** une personne : sélectionnez-la dans la liste de l'interface et cliquez sur **« Modifier les infos »**.
+
 Pour **supprimer** une personne : retirez ses lignes de `data/people.json` et ses fichiers `label_N.png` dans `data/faces/`, puis relancez le programme.
 
 Pour **réinitialiser** tout : supprimez le dossier `data/`.
@@ -257,8 +260,7 @@ repository* sur la page du dépôt.
 - Détection par Haar Cascade : sensible à l'éclairage, visage de face de préférence.
 - L'**âge et le genre sont saisis manuellement** à l'enregistrement — le programme ne les devine pas (et ne peut pas le faire de façon fiable).
 - La ressemblance avec les célébrités est **indicative** (algorithme LBPH, pas de deep learning).
-- **DeepFace** est optionnel : sans lui, tout le reste fonctionne. Avec lui, les estimations d'âge/genre/émotion sont des **estimations automatiques** — l'âge et le genre que VOUS saisissez à l'enregistrement restent la source de vérité affichée en priorité. L'installation de DeepFace entraîne TensorFlow (~1 Go).
-- DeepFace analyse chaque visage toutes les 5 secondes (pas à chaque image) pour préserver la fluidité.
+
 - Reconnaissance par LBPH : fonctionne bien avec quelques échantillons, mais reste un algorithme classique (pas de deep learning).
 
 ## Licence

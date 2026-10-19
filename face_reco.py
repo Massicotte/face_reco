@@ -36,24 +36,12 @@ POS_ALPHA = 0.35
 SIZE_ALPHA = 0.6
 CELEB_TOP_K = 3
 CELEB_MAX_DIST = 90.0
-DF_INTERVAL = 5.0
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".bmp", ".webp")
 VIDEO_EXTS = (".mp4", ".avi", ".mov", ".mkv", ".webm", ".m4v")
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 REF_BOX_HEIGHT = 280.0
 
 CASCADE = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-EMOTIONS_FR = {
-    "happy": "joie", "sad": "triste", "angry": "colere", "surprise": "surprise",
-    "fear": "peur", "disgust": "degout", "neutral": "neutre",
-}
-GENDER_FR = {"Man": "Homme", "Woman": "Femme"}
-
-try:
-    from deepface import DeepFace
-    DF_OK = True
-except ImportError:
-    DF_OK = False
 
 
 def draw_text_bg(frame, text, org, font, scale, color, thickness=1):
@@ -147,8 +135,6 @@ class FaceTrack:
         self.confidence = 0.0
         self.next_predict = 0.0
         self.celeb = None
-        self.deepface = None
-        self.next_deepface = 0.0
 
     def iou(self, box):
         ax, ay, aw, ah = self.box
@@ -369,6 +355,34 @@ class App:
             self.gui.refresh_list()
         return person
 
+    def edit_person(self, person):
+        """Modifie les infos d'une personne existante (champs pre-remplis, Annuler = abandon)."""
+        new = {}
+        for key, label in FIELD_LABELS:
+            initial = str(person.get(key, "") or "")
+            val = simpledialog.askstring(
+                f"Modifier : {person['prenom']} {person['nom']}", label + " :",
+                initialvalue=initial, parent=self.gui.root,
+            )
+            if val is None:
+                return False
+            new[key] = val.strip() or ("?" if key in ("age", "genre") else "")
+        new_nom = new["nom"]
+        if not new_nom:
+            messagebox.showerror("Erreur", "Le nom ne peut pas etre vide.", parent=self.gui.root)
+            return False
+        old_nom = person["nom"]
+        if new_nom != old_nom:
+            if new_nom in self.db:
+                messagebox.showerror("Erreur", f"Une personne nommee '{new_nom}' existe deja.", parent=self.gui.root)
+                return False
+            self.db[new_nom] = self.db.pop(old_nom)
+        person.update(new)
+        save_db(self.db)
+        self.gui.refresh_list()
+        self.gui.set_status(f"Infos de {new['prenom']} {new_nom} mises a jour.")
+        return True
+
     def add_sample(self, gray, box, person):
         save_face_sample(gray, box, person["label"])
         retrain(self.db, self.recognizer)
@@ -445,32 +459,6 @@ class App:
 
     # ---- boucle video ----
 
-    def deepface_analyze(self, frame, box):
-        """Estimation DeepFace (age apparent, genre apparent, emotion) ou None."""
-        if not DF_OK:
-            return None
-        x, y, w, h = box
-        pad = int(0.25 * max(w, h))
-        crop = frame[max(0, y - pad): y + h + pad, max(0, x - pad): x + w + pad]
-        if crop.size == 0:
-            return None
-        try:
-            res = DeepFace.analyze(
-                crop, actions=["age", "gender", "emotion"],
-                detector_backend="skip", enforce_detection=False, silent=True,
-            )
-            res = res[0] if isinstance(res, list) else res
-            age = int(res.get("age", 0))
-            gender = res.get("dominant_gender", "")
-            emotion = res.get("dominant_emotion", "")
-            return {
-                "age": age,
-                "genre": GENDER_FR.get(gender, gender),
-                "emotion": EMOTIONS_FR.get(emotion, emotion),
-            }
-        except Exception:
-            return None
-
     def draw_track(self, frame, track):
         x, y, w, h = track.int_box
         person, confidence = track.person, track.confidence
@@ -495,10 +483,6 @@ class App:
             if track.celeb is not None:
                 name, sim = track.celeb
                 draw_text_bg(frame, f"~ {name} ({sim:.0f}%)", (x, y + h + int(20 * factor)), FONT, small_s, (255, 150, 255), 1)
-        if track.deepface is not None:
-            df = track.deepface
-            df_line = f"~{df['age']} ans | {df['genre']} | {df['emotion']}"
-            draw_text_bg(frame, df_line, (x, y + h + int(((offset if person else 0) + 62) * factor)), FONT, small_s, (120, 220, 255), 1)
 
     def tick(self):
         ret, frame = self.cap.read()
@@ -522,9 +506,6 @@ class App:
                     track.confidence = confidence
                     track.celeb = self.celeb.best_match(gray, track.int_box)
                     track.next_predict = now + PREDICT_INTERVAL
-                if DF_OK and now >= track.next_deepface:
-                    track.deepface = self.deepface_analyze(frame, track.int_box)
-                    track.next_deepface = now + DF_INTERVAL
                 self.draw_track(frame, track)
                 if self.pending_terminate is not None and track.person is not None \
                         and track.person["label"] == self.pending_terminate:
@@ -648,6 +629,9 @@ class Gui:
         self.details = tk.Label(top, text="Selectionnez une personne.", justify=tk.LEFT, anchor="w", wraplength=440)
         self.details.pack(fill=tk.X, pady=5)
 
+        self.edit_btn = tk.Button(top, text="Modifier les infos", state=tk.DISABLED, command=self.on_edit)
+        self.edit_btn.pack(fill=tk.X, pady=5)
+
         self.terminate_btn = tk.Button(
             top, text="TERMINATE", state=tk.DISABLED, bg="#d93025", fg="white",
             font=("Arial", 12, "bold"), command=self.on_terminate,
@@ -656,10 +640,6 @@ class Gui:
 
         tk.Label(self.root, textvariable=self.status_var, fg="#0b57d0", wraplength=450, justify=tk.LEFT).pack(
             fill=tk.X, padx=10, pady=5)
-        df_note = "DeepFace : actif (age/genre/emotion estimes)" if DF_OK else \
-            "DeepFace : non installe (pip install deepface pour l'age/genre/emotion estimes)"
-        tk.Label(self.root, text=df_note, fg="#666", wraplength=450, justify=tk.LEFT).pack(
-            fill=tk.X, padx=10)
 
     def refresh_list(self):
         self.listbox.delete(0, tk.END)
@@ -667,6 +647,7 @@ class Gui:
         for p in self.people:
             self.listbox.insert(tk.END, f"{p['prenom']} {p['nom']}")
         self.terminate_btn.config(state=tk.DISABLED)
+        self.edit_btn.config(state=tk.DISABLED)
         self.details.config(text="Selectionnez une personne.")
 
     def on_select(self, _event):
@@ -679,11 +660,17 @@ class Gui:
                  f"Info : {p.get('info', '')}\nEnregistre le : {p.get('enregistre_le', '?')}"
         )
         self.terminate_btn.config(state=tk.NORMAL)
+        self.edit_btn.config(state=tk.NORMAL)
 
     def on_terminate(self):
         sel = self.listbox.curselection()
         if sel:
             self.app.terminate(self.people[sel[0]]["label"])
+
+    def on_edit(self):
+        sel = self.listbox.curselection()
+        if sel:
+            self.app.edit_person(self.people[sel[0]])
 
     def on_drop(self, event):
         paths = self.root.tk.splitlist(event.data)
