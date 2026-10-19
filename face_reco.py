@@ -599,53 +599,77 @@ class Gui:
     def __init__(self, app):
         self.app = app
         self.root = TkinterDnD.Tk() if DND_OK else tk.Tk()
-        self.root.title("GiscardVision - Controle")
-        self.root.geometry("470x640")
+        self.root.title("GiscardVision - Terminal Officiel")
+        self.root.geometry("500x720")
+        self.root.config(bg="#060628")
         self.root.protocol("WM_DELETE_WINDOW", app.quit)
         self.people = []
 
-        # Bandeau tricolore + titre GISCARDVISION (look Minitel)
-        strip = tk.Frame(self.root, height=46)
-        strip.pack(fill=tk.X)
-        strip.pack_propagate(False)
-        tk.Frame(strip, bg="#002395").place(relx=0.0, rely=0.0, relwidth=1 / 3, relheight=1.0)
-        tk.Frame(strip, bg="#ffffff").place(relx=1 / 3, rely=0.0, relwidth=1 / 3, relheight=1.0)
-        tk.Frame(strip, bg="#ED2939").place(relx=2 / 3, rely=0.0, relwidth=1 / 3, relheight=1.0)
-        tk.Label(strip, text="GISCARDVISION", font=("Courier", 15, "bold"),
-                 bg="#ffffff", fg="#002395").place(relx=0.5, rely=0.5, anchor="center")
+        BG, FG_CYAN, FG_WHITE = "#060628", "#58d6ff", "#e8e8e8"
 
-        self.status_var = tk.StringVar(value="Pret.")
-        top = tk.Frame(self.root)
+        # Bandeau tricolore officiel
+        strip = tk.Frame(self.root, height=10, bg=BG)
+        strip.pack(fill=tk.X, padx=10, pady=(10, 0))
+        strip.pack_propagate(False)
+        tk.Frame(strip, bg="#002395").pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        tk.Frame(strip, bg="#ffffff").pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        tk.Frame(strip, bg="#ED2939").pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        tk.Label(self.root, text="G I S C A R D V I S I O N", bg=BG, fg=FG_CYAN,
+                 font=("Courier", 18, "bold")).pack(pady=(6, 0))
+        tk.Label(self.root, text="LOGICIEL OFFICIEL DE SURVEILLANCE DES POPULATIONS", bg=BG, fg="#ffb000",
+                 font=("Courier", 9, "bold")).pack()
+        tk.Label(self.root, text="MINISTERE DE L'INTERIEUR - REPUBLIQUE FRANCAISE - EDITION 1978",
+                 bg=BG, fg="#7a7a8a", font=("Courier", 8)).pack()
+        self._blink_labels = [
+            tk.Label(self.root, text="* TERMINAL SECURISE - ACCES OFFICIEL *", bg=BG, fg="#ffb000",
+                     font=("Courier", 9, "bold")),
+        ]
+        self._blink_labels[0].pack(pady=(2, 0))
+        self._blink_on = True
+        self.root.after(500, self._blink)
+
+        self.status_var = tk.StringVar(value="ETAT : Pret.")
+        top = tk.Frame(self.root, bg=BG)
         top.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        drop_txt = ("ZONE DE DEPOT\n\nGlissez ici des images ou des dossiers\n"
-                    "(un dossier = une personne, ex : Jean_Dupont/)\n"
-                    "Celebrites : deposez-les dans le dossier celebrites/")
-        self.drop_zone = tk.Label(top, text=drop_txt, relief="groove", bd=2, height=6, bg="#f0f0f0")
+        drop_txt = ("ZONE DE TRANSMISSION\n\n"
+                    "Deposez ici les photos des individus a ficher\n"
+                    "(un dossier = un individu, ex : Jean_Dupont/)\n"
+                    "Celebrites : a deposer dans le dossier celebrites/")
+        self.drop_zone = tk.Label(top, text=drop_txt, relief="groove", bd=2, height=6,
+                                  bg="#0b0b3a", fg=FG_CYAN, font=("Courier", 9))
         self.drop_zone.pack(fill=tk.X, pady=5)
         if DND_OK:
             self.drop_zone.drop_target_register(DND_FILES)
             self.drop_zone.bind("<<Drop>>", self.on_drop)
-            self.drop_zone.bind("<Enter>", lambda e: self.drop_zone.config(bg="#dbeaff"))
-            self.drop_zone.bind("<Leave>", lambda e: self.drop_zone.config(bg="#f0f0f0"))
+            self.drop_zone.bind("<Enter>", lambda e: self.drop_zone.config(bg="#14225e"))
+            self.drop_zone.bind("<Leave>", lambda e: self.drop_zone.config(bg="#0b0b3a"))
         else:
             tk.Button(top, text="Importer des images... (pip install tkinterdnd2 pour le glisser-deposer)",
-                      command=self.browse_files).pack(pady=5)
+                      font=("Courier", 9), command=self.browse_files).pack(pady=5)
 
-        tk.Label(top, text="Personnes enregistrees :").pack(anchor="w", pady=(5, 0))
-        self.listbox = tk.Listbox(top, height=8)
+        tk.Label(top, text="FICHIER NATIONAL DES INDIVIDUS :", bg=BG, fg=FG_CYAN,
+                 font=("Courier", 10, "bold")).pack(anchor="w", pady=(5, 0))
+        self.listbox = tk.Listbox(top, height=8, bg="#0a0a2e", fg=FG_CYAN,
+                                 selectbackground="#002395", selectforeground="#ffffff",
+                                 font=("Courier", 10), relief="sunken")
         self.listbox.pack(fill=tk.BOTH, expand=True)
         self.listbox.bind("<<ListboxSelect>>", self.on_select)
 
-        self.details = tk.Label(top, text="Selectionnez une personne.", justify=tk.LEFT, anchor="w", wraplength=440)
-        self.details.pack(fill=tk.X, pady=5)
+        tk.Label(top, text="FICHE INDIVIDUELLE", bg=BG, fg="#ffb000",
+                 font=("Courier", 9, "bold")).pack(anchor="w", pady=(5, 0))
+        self.details = tk.Label(top, text="Selectionnez un individu dans le fichier.", justify=tk.LEFT,
+                                anchor="w", wraplength=460, bg=BG, fg=FG_WHITE, font=("Courier", 9))
+        self.details.pack(fill=tk.X, pady=2)
 
-        self.edit_btn = tk.Button(top, text="Modifier les informations...", state=tk.DISABLED,
-                                  command=self.on_edit)
+        self.edit_btn = tk.Button(top, text="MODIFIER LA FICHE", state=tk.DISABLED, bg="#f7d117", fg="#060628",
+                                  font=("Courier", 11, "bold"), command=self.on_edit)
         self.edit_btn.pack(fill=tk.X, pady=2)
 
-        self.add_btn = tk.Button(top, text="Ajouter un échantillon (photo)", state=tk.DISABLED,
-                                 command=self.on_add_sample)
+        self.add_btn = tk.Button(top, text="AJOUTER UN ECHANTILLON (PHOTO)", state=tk.DISABLED,
+                                 bg="#00b04f", fg="#060628",
+                                 font=("Courier", 11, "bold"), command=self.on_add_sample)
         self.add_btn.pack(fill=tk.X, pady=2)
 
         self.terminate_btn = tk.Button(
@@ -661,13 +685,23 @@ class Gui:
         self.dgsi_btn.pack(fill=tk.X, pady=5)
 
         self.stop_btn = tk.Button(
-            top, text="Cesser d'écouter", state=tk.DISABLED, bg="#ffffff", fg="#002395",
+            top, text="CESSER D'ECOUTER", state=tk.DISABLED, bg="#58d6ff", fg="#060628",
             font=("Courier", 12, "bold"), command=self.on_stop_report,
         )
         self.stop_btn.pack(fill=tk.X, pady=5)
 
-        tk.Label(self.root, textvariable=self.status_var, fg="#0b57d0", wraplength=450, justify=tk.LEFT).pack(
-            fill=tk.X, padx=10, pady=5)
+        tk.Label(self.root, textvariable=self.status_var, bg="#0a0a2e", fg="#ffb000",
+                 font=("Courier", 9), anchor="w", relief="sunken").pack(
+            fill=tk.X, padx=10, pady=(5, 0), ipady=4)
+        tk.Label(self.root, text="SECRET DEFENSE - NE PAS DIFFUSER - (C) 1978 MINISTERE DE L'INTERIEUR",
+                 bg=BG, fg="#7a7a8a", font=("Courier", 7)).pack(pady=(2, 6))
+
+    def _blink(self):
+        self._blink_on = not self._blink_on
+        fg = "#ffb000" if self._blink_on else "#3a3a4a"
+        for lbl in self._blink_labels:
+            lbl.config(fg=fg)
+        self.root.after(500, self._blink)
 
     def refresh_list(self):
         self.listbox.delete(0, tk.END)
@@ -679,7 +713,7 @@ class Gui:
         self.stop_btn.config(state=tk.DISABLED)
         self.edit_btn.config(state=tk.DISABLED)
         self.add_btn.config(state=tk.DISABLED)
-        self.details.config(text="Selectionnez une personne.")
+        self.details.config(text="Selectionnez un individu dans le fichier.")
 
     def on_select(self, _event):
         sel = self.listbox.curselection()
@@ -755,7 +789,7 @@ class Gui:
             self.root.after(100, self.app.process_imports)
 
     def set_status(self, msg):
-        self.status_var.set(msg)
+        self.status_var.set("ETAT : " + msg)
 
 
 if __name__ == "__main__":
