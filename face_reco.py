@@ -20,6 +20,8 @@ except ImportError:
 DATA_DIR = "data"
 DB_FILE = os.path.join(DATA_DIR, "people.json")
 TRAINING_DIR = os.path.join(DATA_DIR, "faces")
+CELEB_DIR = "celebrites"
+CELEB_DATA_DIR = os.path.join(DATA_DIR, "celeb_model")
 IMPORT_DIR = "a_importer"
 IMPORT_DONE_DIR = os.path.join(IMPORT_DIR, "traite")
 FACE_SIZE = (200, 200)
@@ -32,11 +34,21 @@ SIZE_TOLERANCE = 0.12
 TRACK_TIMEOUT = 1.0
 POS_ALPHA = 0.35
 SIZE_ALPHA = 0.6
+CELEB_TOP_K = 3
+CELEB_MAX_DIST = 90.0
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".bmp", ".webp")
+VIDEO_EXTS = (".mp4", ".avi", ".mov", ".mkv", ".webm", ".m4v")
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 REF_BOX_HEIGHT = 280.0
 
 CASCADE = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+FIELD_LABELS = [
+    ("nom", "Nom"),
+    ("prenom", "Prenom"),
+    ("age", "Age"),
+    ("genre", "Genre (libre : H, F, NB, transfem, ... ce que vous voulez)"),
+    ("info", "Info complementaire (facultatif)"),
+]
 
 
 def load_db():
@@ -101,7 +113,7 @@ def predict_face(gray, box, recognizer):
 
 
 class FaceTrack:
-    """Visage suivi : position lissee, taille stable (tolerance + mise a jour max 2/s)."""
+    """Visage suivi : position lissee, taille stable (tolerance + maj max 2/s)."""
 
     _next_id = 0
 
@@ -114,6 +126,7 @@ class FaceTrack:
         self.person = None
         self.confidence = 0.0
         self.next_predict = 0.0
+        self.celeb = None
 
     def iou(self, box):
         ax, ay, aw, ah = self.box
@@ -193,11 +206,66 @@ class Explosion:
         return True
 
 
+class CelebMatcher:
+    """Compare les visages aux photos de celebrites/ (un sous-dossier par celebrite)."""
+
+    def __init__(self):
+        self.recognizer = cv2.face.LBPHFaceRecognizer_create()
+        self.names = {}
+        self.dirty = True
+
+    def retrain_if_needed(self):
+        if not os.path.isdir(CELEB_DIR):
+            return False
+        subdirs = sorted(d for d in os.listdir(CELEB_DIR)
+                         if os.path.isdir(os.path.join(CELEB_DIR, d)))
+        images, labels, names = [], [], {}
+        for idx, celeb in enumerate(subdirs, start=1):
+            folder = os.path.join(CELEB_DIR, celeb)
+            count = 0
+            for fname in sorted(os.listdir(folder)):
+                if not fname.lower().endswith(IMAGE_EXTS):
+                    continue
+                img = cv2.imread(os.path.join(folder, fname))
+                if img is None:
+                    continue
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                boxes = CASCADE.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=MIN_FACE_SIZE)
+                if len(boxes):
+                    face = extract_face(gray, max(boxes, key=lambda b: b[2] * b[3]))
+                    images.append(face)
+                    labels.append(idx)
+                    count += 1
+            if count:
+                names[idx] = celeb.replace("_", " ")
+        if images:
+            self.recognizer.train(images, np.array(labels))
+            self.names = names
+            self.dirty = False
+            return True
+        self.names = {}
+        self.dirty = False
+        return False
+
+    def best_match(self, gray, box):
+        if self.dirty:
+            self.retrain_if_needed()
+        if not self.names or self.recognizer.empty():
+            return None, 0.0
+        label, dist = self.recognizer.predict(extract_face(gray, box))
+        if dist > CELEB_MAX_DIST:
+            return None, 0.0
+        similarity = max(0.0, 100.0 - dist)
+        return self.names.get(label), similarity
+
+
 class App:
     def __init__(self):
         self.db = load_db()
         self.recognizer = cv2.face.LBPHFaceRecognizer_create()
         retrain(self.db, self.recognizer)
+        self.celeb = CelebMatcher()
+        self.celeb.retrain_if_needed()
         os.makedirs(IMPORT_DIR, exist_ok=True)
 
         self.tracker = FaceTracker()
@@ -206,33 +274,72 @@ class App:
         self.terminate_deadline = 0.0
         self.last_poll = 0.0
         self.running = False
-        self.cap = cv2.VideoCapture(0)
+        self.source = None
+        self.cap = None
+        self.open_source(0)
         self.window = "Reconnaissance faciale"
         cv2.namedWindow(self.window, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(self.window, 960, 540)
         self.fullscreen = False
         self.gui = Gui(self)
         self.gui.refresh_list()
 
+    # ---- source video ----
+
+    def open_source(self, source):
+        new_cap = cv2.VideoCapture(source)
+        if not new_cap.isOpened():
+            return False
+        if self.cap is not None:
+            self.cap.release()
+        self.cap = new_cap
+        self.source = source
+        self.tracker = FaceTracker()
+        return True
+
+    def choose_video_source(self):
+        path = filedialog.askopenfilename(
+            title="Choisir un fichier video",
+            filetypes=[("Videos", " ".join("*" + e for e in VIDEO_EXTS)), ("Tous", "*.*")],
+            parent=self.gui.root,
+        )
+        if not path:
+            return
+        if self.open_source(path):
+            self.gui.set_status(f"Source : {os.path.basename(path)}")
+        else:
+            messagebox.showerror("Erreur", "Impossible d'ouvrir ce fichier video.", parent=self.gui.root)
+
+    def choose_camera(self):
+        index = simpledialog.askinteger(
+            "Choisir la webcam", "Numero de la webcam (0, 1, 2, ...) :", initialvalue=0,
+            minvalue=0, parent=self.gui.root,
+        )
+        if index is None:
+            return
+        if self.open_source(index):
+            self.gui.set_status(f"Source : webcam {index}")
+        else:
+            messagebox.showerror("Erreur", f"Webcam {index} inaccessible.", parent=self.gui.root)
+
     # ---- enregistrement / import ----
 
     def prompt_new_person(self, nom_defaut=""):
-        nom = simpledialog.askstring("Nouvelle personne", "Nom :", initialvalue=nom_defaut, parent=self.gui.root)
-        if not nom:
-            return None
-        prenom = simpledialog.askstring("Nouvelle personne", f"Prenom de {nom} :", parent=self.gui.root) or ""
-        age = simpledialog.askstring("Nouvelle personne", f"Age de {nom} :", parent=self.gui.root) or "?"
-        sexe = simpledialog.askstring("Nouvelle personne", f"Sexe de {nom} (H/F) :", parent=self.gui.root) or "?"
-        extra = simpledialog.askstring("Nouvelle personne", "Info complementaire (facultatif) :", parent=self.gui.root) or ""
+        values = {}
+        for key, label in FIELD_LABELS:
+            val = simpledialog.askstring("Nouvelle personne", label + " :",
+                                         initialvalue=nom_defaut if key == "nom" else "",
+                                         parent=self.gui.root)
+            if key == "nom" and not val:
+                return None
+            values[key] = (val or ("?" if key in ("age", "genre") else "")).strip()
+        nom = values["nom"]
         if nom in self.db:
             person = self.db[nom]
         else:
             person = {
                 "label": next_label(self.db),
-                "nom": nom,
-                "prenom": prenom,
-                "age": age,
-                "sexe": sexe,
-                "info": extra,
+                **values,
                 "enregistre_le": date.today().isoformat(),
             }
             self.db[nom] = person
@@ -245,7 +352,6 @@ class App:
         retrain(self.db, self.recognizer)
 
     def process_folder_for_person(self, folder_path, person):
-        """Toutes les images d'un sous-dossier -> cette personne (plus grand visage par photo)."""
         added = 0
         for fname in sorted(os.listdir(folder_path)):
             if not fname.lower().endswith(IMAGE_EXTS):
@@ -262,7 +368,6 @@ class App:
         return added
 
     def process_imports(self):
-        """Sous-dossiers de a_importer/ = une personne ; images a la racine = reconnaissance."""
         moved = []
         os.makedirs(IMPORT_DONE_DIR, exist_ok=True)
         for entry in sorted(os.listdir(IMPORT_DIR)):
@@ -304,7 +409,8 @@ class App:
             shutil.move(path, os.path.join(IMPORT_DONE_DIR, fname))
 
         if moved or flat:
-            self.gui.set_status(" | ".join(moved) if moved else f"Import : {len(flat)} image(s), {new_persons} nouvelle(s) personne(s).")
+            self.gui.set_status(" | ".join(moved) if moved
+                                else f"Import : {len(flat)} image(s), {new_persons} nouvelle(s) personne(s).")
             self.gui.refresh_list()
         return bool(moved or flat)
 
@@ -326,17 +432,33 @@ class App:
         color = (0, 255, 0) if person else (0, 0, 255)
         cv2.rectangle(frame, (x, y), (x + w, y + h), color, max(2, th))
         if person:
-            line1 = f"{person['prenom']} {person['nom']} | {person['age']} ans | {person['sexe']}"
+            line1 = f"{person['prenom']} {person['nom']} | {person['age']} | {person.get('genre', '?')}"
             cv2.putText(frame, line1, (x, y - 10), FONT, name_s, color, th)
+            offset = 0
             if person.get("info"):
-                cv2.putText(frame, person["info"], (x, y + h + int(20 * factor)), FONT, small_s, (255, 255, 0), 1)
-            cv2.putText(frame, f"confiance: {confidence:.0f}", (x, y + h + int(42 * factor)), FONT, small_s, (200, 200, 200), 1)
+                offset += 20
+                cv2.putText(frame, person["info"], (x, y + h + int(offset * factor)), FONT, small_s, (255, 255, 0), 1)
+            cv2.putText(frame, f"confiance: {confidence:.0f}", (x, y + h + int((offset + 22) * factor)), FONT, small_s, (200, 200, 200), 1)
+            if track.celeb is not None:
+                name, sim = track.celeb
+                cv2.putText(frame, f"~ {name} ({sim:.0f}%)", (x, y + h + int((offset + 42) * factor)), FONT, small_s, (255, 150, 255), 1)
         else:
             cv2.putText(frame, "Inconnu", (x, y - 10), FONT, name_s, color, th)
+            if track.celeb is not None:
+                name, sim = track.celeb
+                cv2.putText(frame, f"~ {name} ({sim:.0f}%)", (x, y + h + int(20 * factor)), FONT, small_s, (255, 150, 255), 1)
 
     def tick(self):
         ret, frame = self.cap.read()
         now = time.time()
+        if not ret:
+            if isinstance(self.source, str) and os.path.exists(self.source):
+                self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                ret, frame = self.cap.read()
+            if not ret:
+                self.gui.set_status("Fin de la source video.")
+                self.quit()
+                return
         if ret:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             boxes = CASCADE.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=5, minSize=MIN_FACE_SIZE)
@@ -346,6 +468,7 @@ class App:
                     label, confidence = predict_face(gray, track.int_box, self.recognizer)
                     track.person = person_by_label(self.db, label) if label is not None else None
                     track.confidence = confidence
+                    track.celeb = self.celeb.best_match(gray, track.int_box)
                     track.next_predict = now + PREDICT_INTERVAL
                 self.draw_track(frame, track)
                 if self.pending_terminate is not None and track.person is not None \
@@ -358,7 +481,24 @@ class App:
                 self.gui.set_status("Cible non visible a l'ecran.")
                 self.pending_terminate = None
             self.explosions = [e for e in self.explosions if e.draw(frame, now)]
-            cv2.imshow(self.window, frame)
+
+            try:
+                win_rect = cv2.getWindowImageRect(self.window)
+                win_w, win_h = win_rect[2], win_rect[3]
+            except cv2.error:
+                win_w, win_h = frame.shape[1], frame.shape[0]
+            if win_w > 0 and (win_w != frame.shape[1] or win_h != frame.shape[0]):
+                fh, fw = frame.shape[:2]
+                scale = min(win_w / fw, win_h / fh)
+                new_w, new_h = max(1, int(fw * scale)), max(1, int(fh * scale))
+                resized = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
+                canvas = np.zeros((win_h, win_w, 3), dtype=np.uint8)
+                ox, oy = (win_w - new_w) // 2, (win_h - new_h) // 2
+                canvas[oy : oy + new_h, ox : ox + new_w] = resized
+                cv2.imshow(self.window, canvas)
+            else:
+                cv2.imshow(self.window, frame)
+
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q"):
                 self.quit()
@@ -394,9 +534,10 @@ class App:
             self.gui.root.after(33, self.tick)
 
     def run(self):
-        if not self.cap.isOpened():
+        if not self.cap or not self.cap.isOpened():
             messagebox.showerror("Erreur", "Impossible d'acceder a la webcam.")
-            self.cap.release()
+            if self.cap:
+                self.cap.release()
             return
         self.running = True
         self.gui.root.after(33, self.tick)
@@ -404,7 +545,8 @@ class App:
 
     def quit(self):
         self.running = False
-        self.cap.release()
+        if self.cap:
+            self.cap.release()
         cv2.destroyAllWindows()
         self.gui.root.destroy()
 
@@ -414,7 +556,7 @@ class Gui:
         self.app = app
         self.root = TkinterDnD.Tk() if DND_OK else tk.Tk()
         self.root.title("Face Reco - Controle")
-        self.root.geometry("460x560")
+        self.root.geometry("470x640")
         self.root.protocol("WM_DELETE_WINDOW", app.quit)
         self.people = []
 
@@ -422,25 +564,33 @@ class Gui:
         top = tk.Frame(self.root)
         top.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
+        src = tk.Frame(top)
+        src.pack(fill=tk.X)
+        tk.Label(src, text="Source video :").pack(side=tk.LEFT)
+        tk.Button(src, text="Fichier video...", command=app.choose_video_source).pack(side=tk.LEFT, padx=5)
+        tk.Button(src, text="Changer de webcam", command=app.choose_camera).pack(side=tk.LEFT)
+        tk.Button(src, text="Retour webcam 0", command=lambda: app.open_source(0) or None).pack(side=tk.LEFT, padx=5)
+
         drop_txt = ("ZONE DE DEPOT\n\nGlissez ici des images ou des dossiers\n"
-                    "(un dossier = une personne, ex : Jean_Dupont/)")
-        self.drop_zone = tk.Label(top, text=drop_txt, relief="groove", bd=2, height=5, bg="#f0f0f0")
-        self.drop_zone.pack(fill=tk.X)
+                    "(un dossier = une personne, ex : Jean_Dupont/)\n"
+                    "Celebrites : deposez-les dans le dossier celebrites/")
+        self.drop_zone = tk.Label(top, text=drop_txt, relief="groove", bd=2, height=6, bg="#f0f0f0")
+        self.drop_zone.pack(fill=tk.X, pady=5)
         if DND_OK:
             self.drop_zone.drop_target_register(DND_FILES)
             self.drop_zone.bind("<<Drop>>", self.on_drop)
             self.drop_zone.bind("<Enter>", lambda e: self.drop_zone.config(bg="#dbeaff"))
             self.drop_zone.bind("<Leave>", lambda e: self.drop_zone.config(bg="#f0f0f0"))
         else:
-            tk.Button(top, text="Importer des images... (glisser-deposer indisponible : pip install tkinterdnd2)",
+            tk.Button(top, text="Importer des images... (pip install tkinterdnd2 pour le glisser-deposer)",
                       command=self.browse_files).pack(pady=5)
 
-        tk.Label(top, text="Personnes enregistrees :").pack(anchor="w", pady=(10, 0))
-        self.listbox = tk.Listbox(top, height=10)
+        tk.Label(top, text="Personnes enregistrees :").pack(anchor="w", pady=(5, 0))
+        self.listbox = tk.Listbox(top, height=8)
         self.listbox.pack(fill=tk.BOTH, expand=True)
         self.listbox.bind("<<ListboxSelect>>", self.on_select)
 
-        self.details = tk.Label(top, text="Selectionnez une personne.", justify=tk.LEFT, anchor="w", wraplength=430)
+        self.details = tk.Label(top, text="Selectionnez une personne.", justify=tk.LEFT, anchor="w", wraplength=440)
         self.details.pack(fill=tk.X, pady=5)
 
         self.terminate_btn = tk.Button(
@@ -449,7 +599,7 @@ class Gui:
         )
         self.terminate_btn.pack(fill=tk.X, pady=5)
 
-        tk.Label(self.root, textvariable=self.status_var, fg="#0b57d0", wraplength=440, justify=tk.LEFT).pack(
+        tk.Label(self.root, textvariable=self.status_var, fg="#0b57d0", wraplength=450, justify=tk.LEFT).pack(
             fill=tk.X, padx=10, pady=5)
 
     def refresh_list(self):
@@ -466,7 +616,7 @@ class Gui:
             return
         p = self.people[sel[0]]
         self.details.config(
-            text=f"Nom : {p['nom']}\nPrenom : {p['prenom']}\nAge : {p['age']}  |  Sexe : {p['sexe']}\n"
+            text=f"Nom : {p['nom']}\nPrenom : {p['prenom']}\nAge : {p['age']}  |  Genre : {p.get('genre', '?')}\n"
                  f"Info : {p.get('info', '')}\nEnregistre le : {p.get('enregistre_le', '?')}"
         )
         self.terminate_btn.config(state=tk.NORMAL)
@@ -481,15 +631,25 @@ class Gui:
         os.makedirs(IMPORT_DIR, exist_ok=True)
         n = 0
         for path in paths:
+            base = os.path.basename(os.path.normpath(path))
             if os.path.isdir(path):
-                dest = os.path.join(IMPORT_DIR, os.path.basename(os.path.normpath(path)))
-                shutil.copytree(path, dest, dirs_exist_ok=True)
+                if base.lower().startswith("celebrite"):
+                    dest = os.path.join(CELEB_DIR, base)
+                    os.makedirs(CELEB_DIR, exist_ok=True)
+                    shutil.copytree(path, dest, dirs_exist_ok=True)
+                    self.app.celeb.dirty = True
+                    self.app.celeb.retrain_if_needed()
+                    self.set_status(f"Celebites importees depuis {base} : modele recalcule.")
+                else:
+                    shutil.copytree(path, os.path.join(IMPORT_DIR, base), dirs_exist_ok=True)
                 n += 1
             elif os.path.isfile(path) and path.lower().endswith(IMAGE_EXTS):
-                shutil.copy2(path, os.path.join(IMPORT_DIR, os.path.basename(path)))
+                shutil.copy2(path, os.path.join(IMPORT_DIR, base))
                 n += 1
-        self.set_status(f"{n} element(s) recupere(s), traitement...")
-        self.root.after(100, self.app.process_imports)
+        if n and any(not os.path.basename(os.path.normpath(p)).lower().startswith("celebrite")
+                     for p in paths if os.path.isdir(p)):
+            self.set_status(f"{n} element(s) recupere(s), traitement...")
+            self.root.after(100, self.app.process_imports)
 
     def browse_files(self):
         files = filedialog.askopenfilenames(filetypes=[("Images", "*.png *.jpg *.jpeg *.bmp *.webp")])

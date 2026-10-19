@@ -13,8 +13,12 @@ Application Python qui utilise votre webcam pour **détecter les visages en dire
 - **Enregistrement en direct** (touche `N`) : nom, prénom, âge, sexe, info libre.
 - **Interface graphique** : glisser-déposer d'images directement dans la fenêtre, liste des personnes enregistrées avec leurs détails, et bouton **TERMINATE** (animation d'explosion sur le visage de la personne si elle est à l'écran).
 - **Suivi stable** : le cadre et le texte ne « sautent » plus — position lissée, taille mise à jour au maximum toutes les 0,5 s avec une tolérance de ±12 % (les micro-variations sont ignorées).
-- **Import intelligent** : un **sous-dossier = une personne** (toutes ses photos sont garantées lui appartener,aucune confusion possible).
+- **Import intelligent** : un **sous-dossier = une personne** (toutes ses photos sont garanties lui appartenir, aucune confusion possible).
 - **Multi-échantillons** : chaque nouvel échantillon améliore la reconnaissance (ré-entraînement automatique à chaque ajout).
+- **Redimensionnement sans déformation** : la vidéo s'adapte à la taille de la fenêtre en conservant ses proportions (bandes noires type « letterbox »).
+- **Source vidéo au choix** : webcam 0/1/2… ou fichier vidéo (mp4, avi, mov…) via l'interface.
+- **Genre libre** : le champ genre est un champ libre (H, F, NB, transfem…) que vous définissez vous-même à l'enregistrement — la base de données supporte toutes les catégories.
+- **Ressemblance avec des célébrités** : déposez des photos dans `celebrites/` (un sous-dossier par célébrité) et le programme affiche la célébrité ressemblante avec un score.
 
 ---
 
@@ -110,8 +114,9 @@ Pour améliorer la reconnaissance d'une personne : appuyez plusieurs fois sur **
 
 Au lancement, **deux fenêtres** s'ouvrent : la vidéo webcam et le panneau de contrôle.
 
-- **Zone de dépôt** : glissez-déposez directement vos images ou dossiers dessus (nécessite `tkinterdnd2`,installé par `requirements.txt`).
-- **Liste des personnes** : toutes les personnes enregistrées. Cliquez sur un nom → ses détails s'affichent(nom, prénom, âge, sexe, info, date d'enregistrement).
+- **Zone de dépôt** : glissez-déposez directement vos images ou dossiers dessus (nécessite `tkinterdnd2`, installé par `requirements.txt`).
+- **Source vidéo** : boutons « Fichier video... » (analyse un fichier mp4/avi/mov...), « Changer de webcam » (numéro 0, 1, 2...), « Retour webcam 0 ». La vidéo s'affiche toujours sans déformation, quelle que soit la taille de la fenêtre.
+- **Liste des personnes** : toutes les personnes enregistrées. Cliquez sur un nom → ses détails s'affichent (nom, prénom, âge, genre, info, date d'enregistrement).
 - **Bouton TERMINATE** : apparaît (activé) quand une personne est sélectionnée. Au clic, le programme attendjusqu'à 5 s que cette personne soit reconnue à l'écran → **animation d'explosion** sur son visage 🎆
 - **Messages de statut** : résultat des imports, confirmations, erreurs — plus besoin de regarder le terminal.
 
@@ -136,6 +141,34 @@ a_importer/
 
 > ✅ Avec les sous-dossiers, **aucune confusion possible** : toutes les photos d'un dossier vont à la même personne, sous tous les angles voulus.
 > Les images traitées sont déplacées dans `a_importer/traite/`.
+
+### Genre : un champ libre (pas une devinette)
+
+Le champ **genre est libre** : H, F, NB, transfem, non-binaire, ce que vous voulez — vous le définissez à
+l'enregistrement et il s'affiche avec le visage. C'est un choix volontaire : un classifieur ne peut pas
+« deviner » une identité de genre à partir d'un visage de façon fiable ; la valeur que vous saisissez
+est donc la source de vérité, stockée dans `data/people.json`.
+
+### Ressemblance avec des célébrités
+
+Créez un dossier `celebrites/` à côté du script, avec **un sous-dossier par célébrité** :
+
+```
+celebrites/
+├── Jean_Dujardin/
+│   ├── photo1.jpg
+│   └── photo2.jpg
+└── Scarlett_Johansson/
+    └── photo.jpg
+```
+
+- Le programme construit un modèle de comparaison à partir de ces photos.
+- Sous chaque visage détecté (connu ou inconnu), il affiche la célébrité la plus ressemblante :
+  `~ Jean Dujardin (62%)` en violet.
+- Astuce : glissez directement un dossier nommé `celebrites-...` dans la zone de dépôt, il sera
+  reconnu comme célébrité et le modèle recalculé.
+- Plus vous mettez de photos par célébrité, meilleure est la comparaison. C'est un jeu de
+  ressemblance approximatif — pas une science exacte.
 
 ### Ce qui s'affiche
 
@@ -220,7 +253,8 @@ repository* sur la page du dépôt.
 ## Limites
 
 - Détection par Haar Cascade : sensible à l'éclairage, visage de face de préférence.
-- L'**âge et le sexe sont saisis manuellement** à l'enregistrement — le programme ne les devine pas.
+- L'**âge et le genre sont saisis manuellement** à l'enregistrement — le programme ne les devine pas (et ne peut pas le faire de façon fiable).
+- La ressemblance avec les célébrités est **indicative** (algorithme LBPH, pas de deep learning).
 - Reconnaissance par LBPH : fonctionne bien avec quelques échantillons, mais reste un algorithme classique (pas de deep learning).
 
 ## Licence
