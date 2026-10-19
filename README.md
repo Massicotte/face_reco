@@ -11,7 +11,9 @@ Application Python qui utilise votre webcam pour **détecter les visages en dire
 - **Texte adaptatif** : la taille du texte et l'épaisseur du cadre sont proportionnelles à la taille du visage détecté.
 - **Plein écran** (touche `F`) et fenêtre redimensionnable à la souris.
 - **Enregistrement en direct** (touche `N`) : nom, prénom, âge, sexe, info libre.
-- **Import d'images en glisser-déposer** (dossier `a_importer/`) : ajoutez plusieurs photos de la même personne sous différents angles, le programme les rattache automatiquement.
+- **Interface graphique** : glisser-déposer d'images directement dans la fenêtre, liste des personnes enregistrées avec leurs détails, et bouton **TERMINATE** (animation d'explosion sur le visage de la personne si elle est à l'écran).
+- **Suivi stable** : le cadre et le texte ne « sautent » plus — position lissée, taille mise à jour au maximum toutes les 0,5 s avec une tolérance de ±12 % (les micro-variations sont ignorées).
+- **Import intelligent** : un **sous-dossier = une personne** (toutes ses photos sont garantées lui appartener,aucune confusion possible).
 - **Multi-échantillons** : chaque nouvel échantillon améliore la reconnaissance (ré-entraînement automatique à chaque ajout).
 
 ---
@@ -104,17 +106,36 @@ Deposez des images dans ./a_importer/ pour les importer (traitement automatique)
 
 Pour améliorer la reconnaissance d'une personne : appuyez plusieurs fois sur **`N`** sous des angles et éclairages différents — si le visage est déjà reconnu, seul un nouvel échantillon est ajouté, sans redemander les infos.
 
-### Importer des photos (glisser-déposer)
+### L'interface graphique (fenêtre « Face Reco - Contrôle »)
 
-Les fenêtres OpenCV n'acceptent pas le glisser-déposer natif du système : le programme surveille donc en continu le dossier **`a_importer/`** (créé automatiquement à côté du script), toutes les ~2 secondes, même pendant que la webcam tourne.
+Au lancement, **deux fenêtres** s'ouvrent : la vidéo webcam et le panneau de contrôle.
 
-1. Glissez vos photos dans `a_importer/` (png, jpg, jpeg, bmp, webp).
-2. Chaque visage détecté est analysé :
-   - **Personne déjà connue** → ajouté directement comme nouvel échantillon (nouvel angle).
-   - **Personne inconnue** → le programme demande ses infos dans le terminal, puis les images suivantes de la même personne sont **rattachées automatiquement**, sans rien redemander.
-3. Les images traitées sont déplacées dans `a_importer/traite/`.
+- **Zone de dépôt** : glissez-déposez directement vos images ou dossiers dessus (nécessite `tkinterdnd2`,installé par `requirements.txt`).
+- **Liste des personnes** : toutes les personnes enregistrées. Cliquez sur un nom → ses détails s'affichent(nom, prénom, âge, sexe, info, date d'enregistrement).
+- **Bouton TERMINATE** : apparaît (activé) quand une personne est sélectionnée. Au clic, le programme attendjusqu'à 5 s que cette personne soit reconnue à l'écran → **animation d'explosion** sur son visage 🎆
+- **Messages de statut** : résultat des imports, confirmations, erreurs — plus besoin de regarder le terminal.
 
-> **Astuce** : mélangez photos de face, de trois-quarts, avec/sans lunettes, éclairages variés — c'est ce qui fait la différence pour la reconnaissance sous plusieurs angles.
+### Comment le programme sait à qui appartient chaque image ?
+
+**Un sous-dossier = une personne.** C'est la règle d'or :
+
+```
+a_importer/
+├── Jean_Dupont/          ← TOUTES ces photos = Jean Dupont (garanti)
+│   ├── photo1.jpg
+│   ├── photo2.jpg
+│   └── photo3.jpg
+├── Marie_Martin/          ← TOUTES ces photos = Marie Martin
+│   └── selfie.jpg
+└── photo_orpheline.jpg    ← image isolée : rattachée par reconnaissance, ou nouvelle personne
+```
+
+- Si le nom du sous-dossier correspond à une **personne déjà enregistrée** → les échantillons s'ajoutent à elle.
+- Sinon → le programme demande ses infos via une **boîte de dialogue** dans la fenêtre de contrôle.
+- Les images isolées (posées à la racine) sont rattachées **par reconnaissance** : personne déjà connue → nouveléchantillon ; visage inconnu → demande d'infos.
+
+> ✅ Avec les sous-dossiers, **aucune confusion possible** : toutes les photos d'un dossier vont à la même personne, sous tous les angles voulus.
+> Les images traitées sont déplacées dans `a_importer/traite/`.
 
 ### Ce qui s'affiche
 
