@@ -32,7 +32,6 @@ PREDICT_INTERVAL = 1.5
 SIZE_UPDATE_INTERVAL = 0.5
 SIZE_TOLERANCE = 0.12
 TRACK_TIMEOUT = 1.0
-UNKNOWN_GRACE = 3.0
 POS_ALPHA = 0.35
 SIZE_ALPHA = 0.6
 CELEB_TOP_K = 3
@@ -136,7 +135,6 @@ class FaceTrack:
         self.confidence = 0.0
         self.next_predict = 0.0
         self.celeb = None
-        self.unknown_since = None
 
     def iou(self, box):
         ax, ay, aw, ah = self.box
@@ -524,18 +522,7 @@ class App:
                     # image floue (mouvement) : on garde la derniere identite connue
                     if cv2.Laplacian(extract_face(gray, track.int_box), cv2.CV_64F).var() >= BLUR_MIN_VAR:
                         label, confidence = predict_face(gray, track.int_box, self.recognizer)
-                        if label is not None:
-                            track.person = person_by_label(self.db, label)
-                            track.unknown_since = None
-                        else:
-                            # delai de grace 3 s avant de passer a "Inconnu"
-                            if track.person is not None and track.unknown_since is None:
-                                track.unknown_since = now
-                            elif track.person is not None and now - track.unknown_since < UNKNOWN_GRACE:
-                                pass
-                            else:
-                                track.person = None
-                                track.unknown_since = None
+                        track.person = person_by_label(self.db, label) if label is not None else None
                         track.confidence = confidence
                         track.celeb = self.celeb.best_match(gray, track.int_box)
                     track.next_predict = now + PREDICT_INTERVAL
