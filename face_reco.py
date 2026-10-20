@@ -32,6 +32,7 @@ PREDICT_INTERVAL = 1.5
 SIZE_UPDATE_INTERVAL = 0.5
 SIZE_TOLERANCE = 0.12
 TRACK_TIMEOUT = 1.0
+UNKNOWN_GRACE = 3.0
 POS_ALPHA = 0.35
 SIZE_ALPHA = 0.6
 CELEB_TOP_K = 3
@@ -135,6 +136,7 @@ class FaceTrack:
         self.confidence = 0.0
         self.next_predict = 0.0
         self.celeb = None
+        self.unknown_since = None
 
     def iou(self, box):
         ax, ay, aw, ah = self.box
@@ -278,6 +280,8 @@ class App:
         os.makedirs(IMPORT_DIR, exist_ok=True)
 
         self.tracker = FaceTracker()
+        self._canvas = None
+        self._canvas_size = None
         self.explosions = []
         self.pending_terminate = None
         self.terminate_deadline = 0.0
@@ -354,6 +358,23 @@ class App:
     def add_sample(self, gray, box, person):
         save_face_sample(gray, box, person["label"])
         retrain(self.db, self.recognizer)
+
+    def capture_new_person(self):
+        """Touche N : enregistre TOUJOURS une nouvelle personne (nouvelle fiche)."""
+        ret, frame = self.cap.read()
+        if not ret:
+            self.gui.set_status("Webcam inaccessible.")
+            return
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        boxes = CASCADE.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=5, minSize=MIN_FACE_SIZE)
+        if len(boxes) != 1:
+            self.gui.set_status("Montrez exactement UN visage pour creer une nouvelle fiche.")
+            return
+        person = self.prompt_new_person()
+        if person is None:
+            return
+        self.add_sample(gray, boxes[0], person)
+        self.gui.set_status(f"{person['prenom']} {person['nom']} enregistre !")
 
     def add_sample_now(self, person):
         """Capture le visage actuellement filme et l'ajoute a la personne selectionnee."""
@@ -503,7 +524,18 @@ class App:
                     # image floue (mouvement) : on garde la derniere identite connue
                     if cv2.Laplacian(extract_face(gray, track.int_box), cv2.CV_64F).var() >= BLUR_MIN_VAR:
                         label, confidence = predict_face(gray, track.int_box, self.recognizer)
-                        track.person = person_by_label(self.db, label) if label is not None else None
+                        if label is not None:
+                            track.person = person_by_label(self.db, label)
+                            track.unknown_since = None
+                        else:
+                            # delai de grace 3 s avant de passer a "Inconnu"
+                            if track.person is not None and track.unknown_since is None:
+                                track.unknown_since = now
+                            elif track.person is not None and now - track.unknown_since < UNKNOWN_GRACE:
+                                pass
+                            else:
+                                track.person = None
+                                track.unknown_since = None
                         track.confidence = confidence
                         track.celeb = self.celeb.best_match(gray, track.int_box)
                     track.next_predict = now + PREDICT_INTERVAL
@@ -532,12 +564,17 @@ class App:
                 win_w, win_h = win_rect[2], win_rect[3]
             except cv2.error:
                 win_w, win_h = frame.shape[1], frame.shape[0]
+            key_size = (win_w, win_h)
+            if key_size != self._canvas_size:
+                self._canvas_size = key_size
+                self._canvas = np.zeros((max(1, win_h), max(1, win_w), 3), dtype=np.uint8)
             if win_w > 0 and (win_w != frame.shape[1] or win_h != frame.shape[0]):
                 fh, fw = frame.shape[:2]
                 scale = min(win_w / fw, win_h / fh)
                 new_w, new_h = max(1, int(fw * scale)), max(1, int(fh * scale))
                 resized = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
-                canvas = np.zeros((win_h, win_w, 3), dtype=np.uint8)
+                canvas = self._canvas
+                canvas[:win_h, :win_w] = 0
                 ox, oy = (win_w - new_w) // 2, (win_h - new_h) // 2
                 canvas[oy : oy + new_h, ox : ox + new_w] = resized
                 cv2.imshow(self.window, canvas)
@@ -556,17 +593,22 @@ class App:
                 )
             elif key == ord("n"):
                 if len(tracks) == 1:
+                    person = self.prompt_new_person()
+                    if person is not None:
+                        self.add_sample(gray, tracks[0].int_box, person)
+                        self.gui.set_status(f"{person['prenom']} {person['nom']} enregistre !")
+                else:
+                    self.gui.set_status("Montrez exactement UN visage pour enregistrer.")
+            elif key == ord("a"):
+                if len(tracks) == 1:
                     track = tracks[0]
                     if track.person is not None:
                         self.add_sample(gray, track.int_box, track.person)
                         self.gui.set_status(f"Nouvel echantillon pour {track.person['prenom']} {track.person['nom']}.")
                     else:
-                        person = self.prompt_new_person()
-                        if person is not None:
-                            self.add_sample(gray, track.int_box, person)
-                            self.gui.set_status(f"{person['prenom']} {person['nom']} enregistre !")
+                        self.gui.set_status("Visage inconnu : utilisez N pour creer une nouvelle fiche.")
                 else:
-                    self.gui.set_status("Montrez exactement UN visage pour enregistrer.")
+                    self.gui.set_status("Montrez exactement UN visage pour ajouter un echantillon.")
 
         if now - self.last_poll > POLL_INTERVAL:
             self.last_poll = now
@@ -629,8 +671,8 @@ class Gui:
         top = tk.Frame(self.root, bg=BG)
         top.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        tk.Label(top, text="Glissez vos photos n'importe ou dans cette fenetre\n"
-                           "(un dossier = un individu, ex : Jean_Dupont/)",
+        tk.Label(top, text="Deposez vos photos n'importe ou dans cette fenetre\n"
+                           "(un dossier = une personne, ex : Jean_Dupont/)",
                  bg=BG, fg="#7a7a8a", font=("Courier", 8)).pack(anchor="w")
         if DND_OK:
             self.root.drop_target_register(DND_FILES)
@@ -647,11 +689,17 @@ class Gui:
         self.listbox.pack(fill=tk.BOTH, expand=True)
         self.listbox.bind("<<ListboxSelect>>", self.on_select)
 
-        tk.Label(top, text="FICHE INDIVIDUELLE", bg=BG, fg="#ffb000",
+        tk.Label(top, text="FICHE DE LA CAMGIRL", bg=BG, fg="#ffb000",
                  font=("Courier", 9, "bold")).pack(anchor="w", pady=(5, 0))
         self.details = tk.Label(top, text="Selectionnez un individu dans le fichier.", justify=tk.LEFT,
                                 anchor="w", wraplength=460, bg=BG, fg=FG_WHITE, font=("Courier", 9))
         self.details.pack(fill=tk.X, pady=2)
+
+        self.capture_btn = tk.Button(
+            top, text="CAPTURER UNE NOUVELLE CAMGIRL", bg="#ED2939", fg="white",
+            font=("Courier", 11, "bold"), command=self.on_capture_new,
+        )
+        self.capture_btn.pack(fill=tk.X, pady=(4, 2))
 
         self.edit_btn = tk.Button(top, text="MODIFIER LA FICHE", state=tk.DISABLED, bg="#f7d117", fg="#060628",
                                   font=("Courier", 11, "bold"), command=self.on_edit)
@@ -712,6 +760,9 @@ class Gui:
         self.stop_btn.config(state=tk.NORMAL)
         self.edit_btn.config(state=tk.NORMAL)
         self.add_btn.config(state=tk.NORMAL)
+
+    def on_capture_new(self):
+        self.app.capture_new_person()
 
     def on_edit(self):
         sel = self.listbox.curselection()
